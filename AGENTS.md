@@ -155,6 +155,7 @@ src/
 assets/weather-icons/         Source BMP icons (Bodmer, FreeBSD license)
 tools/convert_icons.py        BMP -> LVGL RGB565A8 converter (brightness -> alpha)
 tools/pio_generate_icons.py   PlatformIO pre-build hook that runs the converter when stale
+tools/make_logo.py            SVG (assets/icons/terrain.svg) -> A8 logo (src/ui/logo_icon.c)
 include/
   lv_conf.h, esp_panel_board_custom_conf.h
   config.sample.h             template for config.h (committed)
@@ -185,8 +186,11 @@ include/
 
 - 800x480 landscape, dark theme, 56 px header, 64 px bottom tab bar (big touch targets).
 - Tab order: Weather (default), Danger, Problems, Conditions, Details.
-- Header: title (left), location + refresh button (right). The refresh button calls
-  `updater::requestRefresh()`, which wakes the updater task to fetch both sources now without
+- Header: mountain logo + "Backcountry Forecast" (left), location + refresh button (right).
+  The logo is Material Icons "terrain" (Apache 2.0, `assets/icons/`), mirrored and rasterized to
+  an A8 image by `tools/make_logo.py` (output `src/ui/logo_icon.c` is small and committed;
+  re-run the script after changing the SVG). A8 images are drawn in the `image_recolor` colour.
+- The refresh button calls `updater::requestRefresh()`, which wakes the updater task to fetch both sources now without
   changing the daily avalanche schedule; the button is disabled while it runs.
 - The avalanche issued time and download status (`ui::setStatus`) are in the Danger tab footer.
   The Weather tab shows its own "Updated" time.

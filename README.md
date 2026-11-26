@@ -54,9 +54,10 @@ Then:
 
 The Weather tab is adapted from the CYD weather station sketch by Daniel Eichhorn (squix) and Bodmer's
 [OpenWeather](https://github.com/Bodmer/OpenWeather) library. The weather, moon and wind icons are Bodmer's,
-used under the FreeBSD license (see [assets/weather-icons](assets/weather-icons)).
+used under the FreeBSD license (see [assets/weather-icons](assets/weather-icons)). The mountain logo is the
+Material Icons "terrain" icon by Google, Apache 2.0 (see [assets/icons](assets/icons)).
 
 ## License
 
-MIT. See [LICENSE](LICENSE). The weather icons keep their own FreeBSD license. `include/esp_panel_board_custom_conf.h` is derived from Espressif/Waveshare
+MIT. See [LICENSE](LICENSE). The weather icons (FreeBSD) and the logo (Apache 2.0) keep their own licenses. `include/esp_panel_board_custom_conf.h` is derived from Espressif/Waveshare
 sample code and remains under the Apache License 2.0, as stated in its header.

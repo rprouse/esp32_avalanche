@@ -5,6 +5,7 @@
 #include <time.h>
 
 #include "display/display_port.h"
+#include "ui/logo_icon.h"
 #include "weather/weather.h"
 
 using forecast::Danger;
@@ -358,8 +359,16 @@ void build(const forecast::Forecast &fc) {
     lv_obj_set_style_pad_ver(header, 4, 0);
     lv_obj_remove_flag(header, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t *title = makeLabel(header, "Avalanche Forecast", &lv_font_montserrat_28);
-    lv_obj_align(title, LV_ALIGN_LEFT_MID, 0, 0);
+    // Logo + title
+    lv_obj_t *brand = makeBox(header, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(brand, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(brand, 12, 0);
+    lv_obj_align(brand, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_t *logo = lv_image_create(brand);
+    lv_image_set_src(logo, &logo_icon);  // A8 image: drawn in the recolor colour
+    lv_obj_set_style_image_recolor(logo, lv_color_white(), 0);
+    lv_obj_set_style_image_recolor_opa(logo, LV_OPA_COVER, 0);
+    makeLabel(brand, "Backcountry Forecast", &lv_font_montserrat_28);
 
     // Refresh button (far right), location to its left.
     constexpr int32_t kRefreshSize = 48;
