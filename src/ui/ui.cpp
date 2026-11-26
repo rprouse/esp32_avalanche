@@ -5,6 +5,7 @@
 #include <time.h>
 
 #include "display/display_port.h"
+#include "ui/hourly_view.h"
 #include "ui/logo_icon.h"
 #include "ui/problem_graphics.h"
 #include "weather/weather.h"
@@ -460,6 +461,7 @@ void build(const forecast::Forecast &fc) {
     lv_obj_set_style_text_color(bar, lv_color_hex(kMutedColor), 0);
 
     lv_obj_t *weatherTab = lv_tabview_add_tab(tv, "Weather");  // first = shown at boot
+    lv_obj_t *hourlyTab = lv_tabview_add_tab(tv, "Hourly");
     s_dangerTab = lv_tabview_add_tab(tv, "Danger");
     s_problemsTab = lv_tabview_add_tab(tv, "Problems");
     s_conditionsTab = lv_tabview_add_tab(tv, "Conditions");
@@ -474,6 +476,7 @@ void build(const forecast::Forecast &fc) {
     }
 
     buildWeatherTab(weatherTab);
+    buildHourlyTab(hourlyTab);
     buildDangerSkeleton();
     showForecast(fc);
 }
@@ -540,6 +543,8 @@ void showWeather(const weather::Weather &w) {
     lv_label_set_text_fmt(s_wx.moon, "%s\n%d%% lit", weather::moonPhaseName(now), weather::moonIllumination(now));
     lv_label_set_text(s_wx.sun, ("Sunrise " + fmtClock(c.sunrise) + "\nSunset  " + fmtClock(c.sunset)).c_str());
 
+    showHourly(w);
+
     lv_obj_clean(s_wx.days);
     for (const auto &d : w.days) addDayRow(d, m);
 
@@ -549,6 +554,7 @@ void showWeather(const weather::Weather &w) {
 }
 
 void setWeatherError(const char *text) {
+    setHourlyMessage(text);  // only shown while the Hourly tab has no data
     if (s_wx.valid) {
         // Keep showing the last good data; flag the problem in the "Updated" line.
         lv_label_set_text(s_wx.updated, text);

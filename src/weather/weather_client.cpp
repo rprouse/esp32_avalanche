@@ -85,12 +85,14 @@ int localDayKey(time_t t) {
     return (tm.tm_year + 1900) * 1000 + tm.tm_yday;
 }
 
-bool parseForecast(const String &body, bool metric, time_t now, std::vector<Day> &days, String &error) {
+bool parseForecast(const String &body, bool metric, time_t now, Weather &out, String &error) {
     JsonDocument filter;
     JsonObject item = filter["list"][0].to<JsonObject>();
     item["dt"] = true;
     item["main"]["temp_min"] = true;
     item["main"]["temp_max"] = true;
+    item["main"]["temp"] = true;
+    item["sys"]["pod"] = true;
     item["weather"][0]["id"] = true;
     item["weather"][0]["description"] = true;
     item["pop"] = true;
@@ -106,11 +108,27 @@ bool parseForecast(const String &body, bool metric, time_t now, std::vector<Day>
 
     const float precipScale = metric ? 1.0f : 1.0f / 25.4f;  // API always reports mm
     const int today = localDayKey(now);
+    std::vector<Day> &days = out.days;
     days.clear();
+    out.hours.clear();
     int currentKey = -1;
     int bestMiddayDistance = 99;
     for (JsonObjectConst slot : doc["list"].as<JsonArrayConst>()) {
         const time_t dt = slot["dt"] | 0;
+
+        // Hourly: slots that haven't ended yet, up to kHourSlots.
+        if (dt + 3 * 3600 > now && (int)out.hours.size() < kHourSlots) {
+            Hour h;
+            h.time = dt;
+            h.temp = slot["main"]["temp"] | 0.0f;
+            h.conditionId = slot["weather"][0]["id"] | 0;
+            h.night = strcmp(slot["sys"]["pod"] | "d", "n") == 0;
+            h.pop = (int)lroundf((slot["pop"] | 0.0f) * 100);
+            h.snow = (slot["snow"]["3h"] | 0.0f) * precipScale;
+            h.rain = (slot["rain"]["3h"] | 0.0f) * precipScale;
+            out.hours.push_back(h);
+        }
+
         const int key = localDayKey(dt);
         if (key != currentKey) {
             if ((int)days.size() == kMaxDays) break;
@@ -159,7 +177,7 @@ bool parseForecast(const String &body, bool metric, time_t now, std::vector<Day>
 bool parse(const String &currentBody, const String &forecastBody, bool metric, time_t now, Weather &out,
            String &error) {
     if (!parseCurrent(currentBody, metric, out.now, error)) return false;
-    if (!parseForecast(forecastBody, metric, now, out.days, error)) return false;
+    if (!parseForecast(forecastBody, metric, now, out, error)) return false;
     out.metric = metric;
     out.valid = true;
     return true;
@@ -219,6 +237,25 @@ const lv_image_dsc_t *largeIcon(int id, bool night) {
         case Icon::PartlyCloudyNight: return &wi_large_partly_cloudy_night;
         case Icon::Cloudy: return &wi_large_cloudy;
         default: return &wi_large_unknown;
+    }
+}
+
+const lv_image_dsc_t *tinyIcon(int id, bool night) {
+    switch (iconFor(id, night)) {
+        case Icon::Thunderstorm: return &wi_tiny_thunderstorm;
+        case Icon::Drizzle: return &wi_tiny_drizzle;
+        case Icon::LightRain: return &wi_tiny_lightrain;
+        case Icon::Rain: return &wi_tiny_rain;
+        case Icon::Sleet: return &wi_tiny_sleet;
+        case Icon::Snow: return &wi_tiny_snow;
+        case Icon::Fog: return &wi_tiny_fog;
+        case Icon::Wind: return &wi_tiny_wind;
+        case Icon::ClearDay: return &wi_tiny_clear_day;
+        case Icon::ClearNight: return &wi_tiny_clear_night;
+        case Icon::PartlyCloudyDay: return &wi_tiny_partly_cloudy_day;
+        case Icon::PartlyCloudyNight: return &wi_tiny_partly_cloudy_night;
+        case Icon::Cloudy: return &wi_tiny_cloudy;
+        default: return &wi_tiny_unknown;
     }
 }
 

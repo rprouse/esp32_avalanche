@@ -187,7 +187,13 @@ include/
 ### UI conventions
 
 - 800x480 landscape, dark theme, 56 px header, 64 px bottom tab bar (big touch targets).
-- Tab order: Weather (default), Danger, Problems, Conditions, Details.
+- Tab order: Weather (default), Hourly, Danger, Problems, Conditions, Details.
+- Hourly tab (`src/ui/hourly_view.*`): the next 16 forecast slots (48 h in 3 h steps) from
+  `Weather::hours`. It shows weekday/time, 36 px icons (day/night from the API's `sys.pod`), a
+  temperature `lv_line` with values, a dashed freezing line, and snow (white) / rain (blue) bars
+  scaled to max(5 mm, the largest slot). Absolute layout constants are at the top of the file.
+  `lv_line` keeps a pointer to its points, so the point arrays are static. The tab adds ~100 small
+  LVGL objects (~28 KB internal heap).
 - Header: mountain logo + "Backcountry" (left), 24 h clock in gold `#FFC857` (centre; an LVGL
   timer that only changes the text once a minute), location + refresh button (right).
   The logo is Material Icons "terrain" (Apache 2.0, `assets/icons/`), mirrored and rasterized to
@@ -265,7 +271,8 @@ include/
   TZ). Each day shows min/max temperature, max POP, summed snow/rain, and the condition
   from the slot nearest 13:00.
 - Icons: 24-bit BMPs on black in `assets/weather-icons/` (100 px current, 50 px forecast,
-  60 px moon, 50 px wind). `tools/convert_icons.py` converts them to LVGL `RGB565A8` images
+  60 px moon, 50 px wind). The converter also builds a 36 px set (`wi_tiny_*`) by area-averaging
+  the 100 px icons, for the Hourly tab. `tools/convert_icons.py` converts them to LVGL `RGB565A8` images
   with alpha = brightness (un-premultiplied) so they blend onto the dark UI. The ~4.6 MB
   generated C file is **not committed**; the PlatformIO pre-build hook regenerates it when the
   BMPs or the converter change. Image data is ~860 KB of flash.

@@ -39,11 +39,25 @@ struct Day {
     float rain = 0;
 };
 
+/** One 3-hour forecast slot (for the Hourly tab). */
+struct Hour {
+    time_t time = 0;       // start of the 3 h slot, UTC epoch
+    float temp = 0;        // display units
+    int conditionId = 0;
+    bool night = false;    // OpenWeatherMap "pod" (part of day) == "n"
+    int pop = 0;           // probability of precipitation, %
+    float snow = 0;        // during the 3 h slot, mm (metric) or in (imperial)
+    float rain = 0;
+};
+
+constexpr int kHourSlots = 16;  // 16 x 3 h = 48 h
+
 struct Weather {
     bool valid = false;
     bool metric = true;
     Current now;
-    std::vector<Day> days;  // today + following days (up to 5)
+    std::vector<Day> days;    // today + following days (up to 5)
+    std::vector<Hour> hours;  // next kHourSlots 3-hour slots
     time_t fetched = 0;
     bool fromCache = false;  // loaded from flash at boot rather than downloaded
 };
@@ -65,6 +79,7 @@ bool parse(const String &currentBody, const String &forecastBody, bool metric, t
 /** Icon for a condition code. `night` picks the moon variants for clear/cloudy. */
 const lv_image_dsc_t *largeIcon(int conditionId, bool night);  // 100x100
 const lv_image_dsc_t *smallIcon(int conditionId);              // 50x50
+const lv_image_dsc_t *tinyIcon(int conditionId, bool night);   // 36x36
 const lv_image_dsc_t *windIcon(int windDeg);                   // 50x50 compass
 const char *windDirName(int windDeg);                          // "N", "NE", ...
 

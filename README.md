@@ -17,6 +17,7 @@ built with PlatformIO (pioarduino), Arduino-ESP32 3.3 and LVGL 9.
   and once a day (default 17:30 local), re-checking until the new forecast is published.
 - Tabs (swipe or tap):
   - **Weather** (shown first): current conditions, wind, sun and moon, and a 5-day forecast with snow and rain
+  - **Hourly**: the next 48 hours in 3-hour steps, with a temperature line, freezing line and snow/rain bars
   - **Danger**: 3-day ratings by elevation band
   - **Problems**: avalanche problems with an aspect/elevation rose and likelihood and size scales
   - **Conditions**: avalanche, snowpack and weather summaries

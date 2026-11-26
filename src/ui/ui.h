@@ -14,7 +14,7 @@
  *   | tab content (swipe left/right or tap a tab)      |
  *   | (Danger tab footer: issued time + update status) |
  *   +--------------------------------------------------+
- *   | Weather | Danger | Problems | Conditions | Details|  64 px tab bar
+ *   | Weather | Hourly | Danger | Problems | Conditions | Details |  64 px tab bar
  *   +--------------------------------------------------+
  */
 namespace ui {
