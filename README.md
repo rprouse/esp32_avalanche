@@ -5,11 +5,22 @@ built with PlatformIO (pioarduino), Arduino-ESP32 3.3 and LVGL 9.
 
 ## Build & flash
 
-1. Copy `include/config.sample.h` to `include/config.h` and fill in your Wi-Fi details, forecast
-   location (default: Fernie, BC) and time zone. `config.h` is git-ignored.
+1. Copy `include/config.sample.h` to `include/config.h` and fill in the forecast location
+   (default: Fernie, BC), time zone and optional OpenWeatherMap key. `config.h` is git-ignored.
+   Wi-Fi is optional there: it can be set on the device (see below).
 2. Open the folder in VS Code with the pioarduino IDE extension.
 3. Plug the board in using the USB-C port labelled **UART1** (slide switch on UART1).
 4. Run **Upload and Monitor** (or `pio run -t upload -t monitor` from PowerShell).
+
+## Wi-Fi setup
+
+With no Wi-Fi configured, the display starts in **Wi-Fi setup mode**. It shows two QR codes: scan the
+first to join its own network (`Backcountry-XXXX`, password on screen), and the setup page opens on
+your phone (or go to `http://192.168.4.1`). Pick your network and enter its password. The display tests
+it, saves it and restarts.
+
+To change networks later, **hold the refresh button for 3 seconds** and confirm. Setup mode has a
+Cancel button, and gives up after 10 idle minutes, going back to the saved network.
 
 ## What it does
 

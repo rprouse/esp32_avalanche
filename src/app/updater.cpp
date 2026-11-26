@@ -3,11 +3,13 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <atomic>
+#include <lvgl.h>  // LV_SYMBOL_REFRESH
 #include <time.h>
 
 #include "app_config.h"
 #include "display/display_port.h"
 #include "forecast/forecast_client.h"
+#include "net/wifi_creds.h"
 #include "storage/cache.h"
 #include "ui/ui.h"
 #include "weather/weather.h"
@@ -33,20 +35,37 @@ void status(const String &text, ui::StatusLevel level) {
     ui::setStatus(text.c_str(), level);
 }
 
+// Saved on the device (Wi-Fi setup mode) or from config.h. Loaded once by the task.
+wifi_creds::Creds s_creds;
+int s_wifiFailures = 0;
+constexpr int kUnconfirmedFailureLimit = 3;
+
 bool ensureWifi() {
     if (WiFi.status() == WL_CONNECTED) return true;
-    status(String("Connecting to ") + WIFI_SSID + "...", ui::StatusLevel::Info);
+    status("Connecting to " + s_creds.ssid + "...", ui::StatusLevel::Info);
+    WiFi.persistent(false);  // credentials live in our own NVS namespace (wifi_creds)
     WiFi.mode(WIFI_STA);
     WiFi.setAutoReconnect(true);
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    WiFi.begin(s_creds.ssid.c_str(), s_creds.pass.isEmpty() ? nullptr : s_creds.pass.c_str());
     const uint32_t start = millis();
     while (WiFi.status() != WL_CONNECTED && millis() - start < kWifiConnectTimeoutMs) {
         delay(250);
     }
     if (WiFi.status() != WL_CONNECTED) {
         WiFi.disconnect();
+        ++s_wifiFailures;
+        // A network that has never worked here (e.g. a display given to a friend with
+        // someone else's config.h) goes to setup mode. One that has worked never does,
+        // so a router outage can't strand the display in setup.
+        if (s_wifiFailures >= kUnconfirmedFailureLimit && !wifi_creds::confirmed(s_creds.ssid)) {
+            log_w("Wi-Fi \"%s\" has never connected; starting Wi-Fi setup", s_creds.ssid.c_str());
+            wifi_creds::requestSetup();
+            esp_restart();
+        }
         return false;
     }
+    s_wifiFailures = 0;
+    wifi_creds::markConfirmed(s_creds.ssid);
     log_i("Wi-Fi connected, IP %s, RSSI %d", WiFi.localIP().toString().c_str(), WiFi.RSSI());
     return true;
 }
@@ -242,10 +261,13 @@ void task(void *) {
         ui::setWeatherError("Add OPENWEATHER_API_KEY to include/config.h to show the weather.");
     }
     loadCached();
+    s_creds = wifi_creds::load();
 
     for (;;) {
         if (!ensureWifi()) {
-            status(s_av.haveForecast ? "Offline - showing saved forecast" : "Wi-Fi connection failed - retrying",
+            status(s_av.haveForecast ? String("Offline - showing saved forecast. Hold " LV_SYMBOL_REFRESH " to change Wi-Fi.")
+                                     : "Can't connect to " + s_creds.ssid + ". Hold " LV_SYMBOL_REFRESH
+                                       " to change Wi-Fi.",
                    ui::StatusLevel::Error);
             waitOrRefresh(FORECAST_RETRY_MINUTES * 60UL * 1000UL);
             continue;

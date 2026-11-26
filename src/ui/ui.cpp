@@ -56,6 +56,8 @@ lv_obj_t *s_dangerTab = nullptr;
 lv_obj_t *s_dangerGrid = nullptr;  // rebuilt on each forecast; the footer below it is persistent
 lv_obj_t *s_refreshBtn = nullptr;
 void (*s_refreshCb)() = nullptr;
+void (*s_wifiSetupCb)() = nullptr;
+constexpr uint32_t kWifiHoldMs = 3000;
 lv_obj_t *s_problemsTab = nullptr;
 lv_obj_t *s_conditionsTab = nullptr;
 lv_obj_t *s_detailsTab = nullptr;
@@ -502,6 +504,35 @@ void applyFreshness() {
     }
 }
 
+/** Modal "Change Wi-Fi?" dialog, opened by holding the refresh button. */
+void confirmWifiSetup() {
+    if (s_wifiSetupCb == nullptr) return;
+    lv_obj_t *box = lv_msgbox_create(nullptr);  // nullptr = modal, on the top layer
+    lv_obj_set_width(box, 520);
+    lv_obj_set_style_bg_color(box, lv_color_hex(kPanelColor), 0);
+    lv_obj_set_style_text_color(box, lv_color_white(), 0);
+    lv_obj_set_style_text_font(box, &lv_font_montserrat_20, 0);
+    lv_msgbox_add_title(box, LV_SYMBOL_WIFI "  Change Wi-Fi?");
+    lv_obj_set_style_text_font(lv_msgbox_get_title(box), &lv_font_montserrat_24, 0);
+    lv_msgbox_add_text(box,
+                       "The display restarts in Wi-Fi setup mode and stops updating until you finish "
+                       "on your phone. Press Cancel on the setup screen to keep the current network.");
+    lv_obj_t *cancel = lv_msgbox_add_footer_button(box, "Cancel");
+    lv_obj_t *ok = lv_msgbox_add_footer_button(box, "Change Wi-Fi");
+    for (lv_obj_t *b : {cancel, ok}) {
+        lv_obj_set_height(b, 48);
+        lv_obj_set_style_shadow_width(b, 0, 0);
+    }
+    lv_obj_set_width(ok, 180);
+    lv_obj_set_style_bg_color(cancel, lv_color_hex(0x2A3A4D), 0);
+    lv_obj_set_style_bg_color(ok, lv_color_hex(kAccentColor), 0);
+    lv_obj_add_event_cb(
+        cancel, [](lv_event_t *e) { lv_msgbox_close(static_cast<lv_obj_t *>(lv_event_get_user_data(e))); },
+        LV_EVENT_CLICKED, box);
+    lv_obj_add_event_cb(
+        ok, [](lv_event_t *) { s_wifiSetupCb(); }, LV_EVENT_CLICKED, nullptr);
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------- public
@@ -570,12 +601,28 @@ void build(const forecast::Forecast &fc) {
     lv_obj_t *icon = lv_label_create(s_refreshBtn);
     lv_label_set_text(icon, LV_SYMBOL_REFRESH);
     lv_obj_center(icon);
+    // Tap = refresh. Hold for kWifiHoldMs = "Change Wi-Fi?" (SHORT_CLICKED isn't sent after a long press).
     lv_obj_add_event_cb(
         s_refreshBtn,
         [](lv_event_t *) {
             if (s_refreshCb != nullptr) s_refreshCb();
         },
-        LV_EVENT_CLICKED, nullptr);
+        LV_EVENT_SHORT_CLICKED, nullptr);
+    lv_obj_add_event_cb(
+        s_refreshBtn,
+        [](lv_event_t *e) {
+            static uint32_t pressedAt = 0;
+            static bool fired = false;
+            const lv_event_code_t code = lv_event_get_code(e);
+            if (code == LV_EVENT_PRESSED) {
+                pressedAt = lv_tick_get();
+                fired = false;
+            } else if (code == LV_EVENT_PRESSING && !fired && lv_tick_elaps(pressedAt) >= kWifiHoldMs) {
+                fired = true;
+                confirmWifiSetup();
+            }
+        },
+        LV_EVENT_ALL, nullptr);
 
     s_regionLabel = makeLabel(header, "", &lv_font_montserrat_24, kAccentColor);
     lv_obj_align(s_regionLabel, LV_ALIGN_RIGHT_MID, -(kRefreshSize + 4), 0);
@@ -625,6 +672,7 @@ void showForecast(const forecast::Forecast &fc) {
 }
 
 void setRefreshCallback(void (*cb)()) { s_refreshCb = cb; }
+void setWifiSetupCallback(void (*cb)()) { s_wifiSetupCb = cb; }
 
 void setRefreshing(bool busy) {
     if (s_refreshBtn == nullptr) return;

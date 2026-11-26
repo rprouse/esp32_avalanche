@@ -11,9 +11,13 @@
  */
 
 // ----------------------------------------------------------------------------- Wi-Fi
+// Optional. With no Wi-Fi configured, the display starts in Wi-Fi setup mode:
+// it shows a QR code to join its own network from a phone, where you pick your
+// Wi-Fi and enter its password. That choice is saved on the device and takes
+// precedence over these values. To change it later, hold the refresh button.
 // 2.4 GHz networks only (the ESP32-S3 has no 5 GHz radio).
-#define WIFI_SSID     "your-ssid"
-#define WIFI_PASSWORD "your-password"
+// #define WIFI_SSID     "your-ssid"
+// #define WIFI_PASSWORD "your-password"
 
 // ----------------------------------------------------------------------------- Forecast location
 // Any point inside the forecast region you want. Avalanche Canada returns the

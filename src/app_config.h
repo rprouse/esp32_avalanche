@@ -5,7 +5,16 @@
 #if __has_include("config.h")
 #include "config.h"
 #else
-#error "Missing include/config.h - copy include/config.sample.h to include/config.h and fill in your Wi-Fi details."
+#error "Missing include/config.h - copy include/config.sample.h to include/config.h and fill it in."
+#endif
+
+// Wi-Fi: optional. Normally set on the device (Wi-Fi setup mode, saved in NVS);
+// these are only used when nothing has been saved there.
+#ifndef WIFI_SSID
+#define WIFI_SSID ""
+#endif
+#ifndef WIFI_PASSWORD
+#define WIFI_PASSWORD ""
 #endif
 
 #ifndef FORECAST_LANGUAGE

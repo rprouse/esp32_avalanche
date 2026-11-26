@@ -2,6 +2,8 @@
 
 #include "app/screen_schedule.h"
 #include "app/updater.h"
+#include "app/wifi_setup.h"
+#include "net/wifi_creds.h"
 #include "app_config.h"
 #include "display/display_port.h"
 #include "forecast/forecast.h"
@@ -19,6 +21,14 @@ void setup() {
         for (;;) delay(1000);
     }
 
+    // Wi-Fi setup mode: nothing configured yet, or "Change Wi-Fi" was chosen (one-shot flag).
+    const bool haveWifi = !wifi_creds::load().ssid.isEmpty();
+    if (!haveWifi || wifi_creds::takeSetupRequest()) {
+        Serial.println("Starting Wi-Fi setup mode");
+        wifi_setup::start(haveWifi);
+        return;
+    }
+
     {
         display::Lock lock;
         ui::build(forecast::placeholder(FORECAST_NAME));
@@ -31,6 +41,10 @@ void setup() {
     {
         display::Lock lock;
         ui::setRefreshCallback(updater::requestRefresh);
+        ui::setWifiSetupCallback([] {
+            wifi_creds::requestSetup();
+            esp_restart();
+        });
     }
 }
 

@@ -35,6 +35,8 @@ void setWeatherError(const char *text);
 
 /** Header refresh button: callback runs in the LVGL task (keep it short, e.g. notify a task). */
 void setRefreshCallback(void (*cb)());
+/** Holding the refresh button 3 s asks "Change Wi-Fi?"; confirming runs `cb` in the LVGL task. */
+void setWifiSetupCallback(void (*cb)());
 /** Grey out the refresh button while a refresh is running. */
 void setRefreshing(bool busy);
 

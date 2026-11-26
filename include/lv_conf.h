@@ -38,6 +38,9 @@
 #define LV_FONT_MONTSERRAT_40 1
 #define LV_FONT_DEFAULT &lv_font_montserrat_20
 
+/* QR codes on the Wi-Fi setup screen */
+#define LV_USE_QRCODE 1
+
 /* Handy while developing. Shows FPS/CPU in a corner when set to 1. */
 #define LV_USE_SYSMON 0
 #define LV_USE_PERF_MONITOR 0

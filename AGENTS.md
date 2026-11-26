@@ -15,8 +15,8 @@ The Weather tab uses OpenWeatherMap (optional API key in `config.h`).
 
 ## Local configuration (`include/config.h`, git-ignored)
 
-Copy `include/config.sample.h` to `include/config.h` and fill it in. It holds the Wi-Fi
-SSID/password, forecast latitude/longitude, display name, language, POSIX time zone,
+Copy `include/config.sample.h` to `include/config.h` and fill it in. It holds the
+(optional) Wi-Fi SSID/password, forecast latitude/longitude, display name, language, POSIX time zone,
 NTP servers and refresh schedule. **Never commit `config.h`** and never print the
 Wi-Fi password in logs or messages. `src/app_config.h` includes it, fails the build
 with a clear error if it's missing, and supplies defaults for optional settings. When
@@ -144,8 +144,11 @@ src/
   app_config.h                includes include/config.h + defaults
   app/updater.*               Task on core 0: Wi-Fi, NTP, fetch schedule, retries, pushes to UI
   app/screen_schedule.*       Backlight off overnight (lv_timer), touch to wake
+  app/wifi_setup.*            Wi-Fi setup mode: soft AP, DNS catch-all, captive web page, connect test
+  net/wifi_creds.*            Wi-Fi credentials in NVS (falls back to config.h), setup-mode flag
   display/display_port.*      Board + LVGL glue: init, flush, touch read, LVGL task, mutex
   ui/ui.*                     All LVGL screens (header with refresh button, tabview)
+  ui/setup_screen.*           Full-screen Wi-Fi setup page (QR codes + status)
   forecast/forecast.*         Forecast data model, danger-scale names/colours, placeholder
   forecast/forecast_client.*  HTTPS download, JSON -> Forecast, HTML -> plain text
   weather/weather.h           Weather model + icon/moon helpers
@@ -282,6 +285,33 @@ include/
   live in `src/net/root_ca.cpp`.
 - NTP is started (`configTzTime`) only after Wi-Fi connects. Starting it earlier made the first
   sync take ~30 s.
+
+## Wi-Fi setup mode (`src/app/wifi_setup.*`, issue #8)
+
+Only the Wi-Fi SSID/password can be set on the device; everything else stays in `config.h`.
+
+- **Storage:** NVS via `Preferences`, namespace `wifi`: `ssid`, `pass`, `okssid` (the SSID that last
+  connected), `setup` (one-shot "start setup on next boot"). `wifi_creds::load()` uses NVS if set,
+  else `WIFI_SSID`/`WIFI_PASSWORD` from `config.h` (now optional, default `""`). `WiFi.persistent(false)`
+  everywhere, so the driver's own NVS copy isn't used. Never log the password.
+- **Entering setup** (decided in `setup()` in `main.cpp`, instead of building the tabview and starting
+  the updater): no SSID at all; or the `setup` flag, set by holding refresh 3 s + confirming
+  (`ui::setWifiSetupCallback`), or by the updater after 3 failed connects to an SSID that has
+  **never** connected (`okssid`). A confirmed network never triggers setup, so router outages
+  can't strand the display; the Danger footer says "Hold ⟳ to change Wi-Fi" instead.
+- **Refresh button:** tap = `LV_EVENT_SHORT_CLICKED` (not sent after a long press), hold 3 s = confirm dialog.
+- **Setup task** (core 0): scans first (STA), then `WIFI_AP_STA` with AP `Backcountry-XXXX` (last 2 MAC
+  bytes), random 8-char WPA2 password (shown only on screen), AP IP 192.168.4.1. `DNSServer` answers
+  every name; `WebServer` serves the page (`kPage`, inline HTML/JS, no external resources) and redirects
+  unknown hosts to it, which triggers the phone's captive-portal sheet.
+  Endpoints: `GET /scan.json[?refresh=1]`, `POST /save` (ssid, pass), `GET /status.json`, `POST /forget`.
+- **Test before save:** `/save` starts `WiFi.begin()` while the AP stays up; the loop saves only after
+  `WL_CONNECTED`, then restarts. The failure reason comes from `ARDUINO_EVENT_WIFI_STA_DISCONNECTED`
+  (no AP found vs. auth/handshake failure). Connecting may move the AP to the router's channel and
+  briefly drop the phone; the on-screen status is the source of truth.
+- **Leaving:** success or "Forget" restarts. With credentials saved, a Cancel button restarts at once,
+  and 10 min without HTTP requests or AP station changes restarts too. The `setup` flag is cleared
+  when read, so a power cycle in setup also returns to normal mode.
 
 ## Stale forecast warning (`applyFreshness()` in `src/ui/ui.cpp`)
 
