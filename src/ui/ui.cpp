@@ -26,6 +26,31 @@ constexpr uint32_t kBodyColor = 0xD8E0E8;
 
 lv_obj_t *s_regionLabel = nullptr;
 lv_obj_t *s_issuedLabel = nullptr;
+lv_obj_t *s_warnIcon = nullptr;  // header: shown when the avalanche forecast isn't current
+
+// ---- Freshness (issue #1): inputs copied from the last forecast/weather, plus the
+// Danger tab objects to restyle. Re-evaluated every minute by the clock timer.
+constexpr time_t kOverdueGrace = 2 * 3600;   // daily check runs ~30 min after validUntil, plus rechecks
+constexpr time_t kExpiredAfter = 24 * 3600;  // past validUntil by a day
+constexpr time_t kWeatherStale = 2 * 3600;
+constexpr uint32_t kWarnColor = 0xF7B731;     // amber
+constexpr uint32_t kExpiredColor = 0xFF6B3D;  // red-orange
+
+struct FreshnessState {
+    bool haveForecast = false;
+    String issued;
+    time_t validUntil = 0;
+    time_t dayDate[forecast::kDays] = {};
+    lv_obj_t *dayHeader[forecast::kDays] = {};
+    lv_obj_t *dayPast[forecast::kDays] = {};
+    lv_obj_t *cells[forecast::kDays][3] = {};
+    time_t wxFetched = 0;
+    bool wxError = false;
+    int lastKey = -1;  // restyle only when the computed state changes
+} s_fresh;
+
+void applyFreshness();
+lv_obj_t *makeBox(lv_obj_t *parent, lv_flex_flow_t flow);
 lv_obj_t *s_statusLabel = nullptr;
 lv_obj_t *s_dangerTab = nullptr;
 lv_obj_t *s_dangerGrid = nullptr;  // rebuilt on each forecast; the footer below it is persistent
@@ -92,15 +117,22 @@ void styleDangerCell(lv_obj_t *cell, Danger d) {
 
 void buildDangerTab(const forecast::Forecast &fc) {
     static const int32_t cols[] = {200, LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST};
-    static const int32_t rows[] = {40, LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST};
+    static const int32_t rows[] = {50, LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST};
 
     lv_obj_t *grid = s_dangerGrid;
     lv_obj_clean(grid);
     lv_obj_set_grid_dsc_array(grid, cols, rows);
 
     for (int day = 0; day < forecast::kDays; ++day) {
-        lv_obj_t *h = makeLabel(grid, fc.days[day].label.c_str(), &lv_font_montserrat_24);
-        lv_obj_set_grid_cell(h, LV_GRID_ALIGN_CENTER, day + 1, 1, LV_GRID_ALIGN_CENTER, 0, 1);
+        lv_obj_t *hb = makeBox(grid, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(hb, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_grid_cell(hb, LV_GRID_ALIGN_CENTER, day + 1, 1, LV_GRID_ALIGN_CENTER, 0, 1);
+        makeLabel(hb, fc.days[day].label.c_str(), &lv_font_montserrat_24);
+        lv_obj_t *past = makeLabel(hb, "Past", &lv_font_montserrat_14, kMutedColor);
+        lv_obj_add_flag(past, LV_OBJ_FLAG_HIDDEN);
+        s_fresh.dayHeader[day] = hb;
+        s_fresh.dayPast[day] = past;
+        s_fresh.dayDate[day] = fc.days[day].date;
     }
 
     static const char *bands[] = {"Alpine", "Treeline", "Below Treeline"};
@@ -120,8 +152,15 @@ void buildDangerTab(const forecast::Forecast &fc) {
             lv_obj_t *l = makeLabel(cell, "", &lv_font_montserrat_20);
             lv_obj_center(l);
             styleDangerCell(cell, d);
+            s_fresh.cells[day][band] = cell;
         }
     }
+
+    s_fresh.haveForecast = fc.valid;
+    s_fresh.issued = fc.issued;
+    s_fresh.validUntil = fc.validUntilUtc;
+    s_fresh.lastKey = -1;
+    applyFreshness();
 }
 
 /** Danger tab skeleton: grid (filled by buildDangerTab) + footer with issued time and status. */
@@ -370,6 +409,99 @@ void addDayRow(const weather::Day &d, bool metric) {
     lv_label_set_long_mode(det, LV_LABEL_LONG_DOT);
 }
 
+// ---------------------------------------------------------------- Freshness
+
+int localDayNumber(time_t t) {
+    struct tm tm;
+    localtime_r(&t, &tm);
+    return (tm.tm_year + 1900) * 1000 + tm.tm_yday;
+}
+
+enum class Freshness { Fresh, Overdue, Expired, Unknown };
+
+void applyFreshness() {
+    if (s_issuedLabel == nullptr || s_warnIcon == nullptr) return;
+#ifdef FRESHNESS_TEST_OFFSET_HOURS
+    // Test hook: pretend it's later, e.g. -DFRESHNESS_TEST_OFFSET_HOURS=46 (see AGENTS.md).
+    const time_t now = time(nullptr) + FRESHNESS_TEST_OFFSET_HOURS * 3600L;
+#else
+    const time_t now = time(nullptr);
+#endif
+    const bool clockOk = now > 1700000000;
+
+    Freshness state = Freshness::Fresh;
+    if (s_fresh.haveForecast) {
+        if (!clockOk) state = Freshness::Unknown;
+        else if (s_fresh.validUntil && now > s_fresh.validUntil + kExpiredAfter) state = Freshness::Expired;
+        else if (s_fresh.validUntil && now > s_fresh.validUntil + kOverdueGrace) state = Freshness::Overdue;
+    }
+    uint8_t past = 0;
+    if (s_fresh.haveForecast && clockOk) {
+        for (int d = 0; d < forecast::kDays; ++d) {
+            if (s_fresh.dayDate[d] && localDayNumber(s_fresh.dayDate[d]) < localDayNumber(now)) past |= 1 << d;
+        }
+    }
+    const bool wxStale = clockOk && s_wx.valid && s_fresh.wxFetched && !s_fresh.wxError &&
+                         now - s_fresh.wxFetched > kWeatherStale;
+
+    const int key = (int)state | (past << 4) | (wxStale << 8);
+    if (key == s_fresh.lastKey) return;
+    s_fresh.lastKey = key;
+
+    // Header: warning icon + location colour.
+    const uint32_t warn = state == Freshness::Expired ? kExpiredColor : kWarnColor;
+    if (state == Freshness::Fresh) {
+        lv_obj_add_flag(s_warnIcon, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_style_text_color(s_regionLabel, lv_color_hex(kAccentColor), 0);
+    } else {
+        lv_obj_remove_flag(s_warnIcon, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_style_text_color(s_warnIcon, lv_color_hex(warn), 0);
+        lv_obj_set_style_text_color(s_regionLabel, lv_color_hex(warn), 0);
+        lv_obj_align_to(s_warnIcon, s_regionLabel, LV_ALIGN_OUT_LEFT_MID, -8, 0);
+    }
+
+    // Danger footer: plain words.
+    String text;
+    uint32_t color = kBodyColor;
+    if (!s_fresh.haveForecast) {
+        text = s_fresh.issued;  // placeholder, e.g. "Waiting for forecast..."
+    } else {
+        switch (state) {
+            case Freshness::Fresh: text = "Issued " + s_fresh.issued; break;
+            case Freshness::Overdue: text = "Not yet updated - issued " + s_fresh.issued; color = warn; break;
+            case Freshness::Expired: text = "Expired - issued " + s_fresh.issued; color = warn; break;
+            case Freshness::Unknown:
+                text = "Issued " + s_fresh.issued + " - can't confirm it's current (clock not set)";
+                color = warn;
+                break;
+        }
+    }
+    lv_label_set_text(s_issuedLabel, text.c_str());
+    lv_obj_set_style_text_color(s_issuedLabel, lv_color_hex(color), 0);
+
+    // Danger grid: fade past days; outline the remaining days once expired.
+    for (int d = 0; d < forecast::kDays; ++d) {
+        const bool isPast = past & (1 << d);
+        if (s_fresh.dayHeader[d] == nullptr) continue;
+        lv_obj_set_style_opa(s_fresh.dayHeader[d], isPast ? LV_OPA_40 : LV_OPA_COVER, 0);
+        if (isPast) lv_obj_remove_flag(s_fresh.dayPast[d], LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_add_flag(s_fresh.dayPast[d], LV_OBJ_FLAG_HIDDEN);
+        for (int b = 0; b < 3; ++b) {
+            lv_obj_t *cell = s_fresh.cells[d][b];
+            if (cell == nullptr) continue;
+            lv_obj_set_style_opa(cell, isPast ? LV_OPA_40 : LV_OPA_COVER, 0);
+            const bool outline = state == Freshness::Expired && !isPast;
+            lv_obj_set_style_border_width(cell, outline ? 3 : 0, 0);
+            lv_obj_set_style_border_color(cell, lv_color_hex(kExpiredColor), 0);
+        }
+    }
+
+    // Weather: "Updated" line turns amber when the data is more than 2 h old.
+    if (s_wx.valid && !s_fresh.wxError) {
+        lv_obj_set_style_text_color(s_wx.updated, lv_color_hex(wxStale ? kWarnColor : kMutedColor), 0);
+    }
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------- public
@@ -418,6 +550,7 @@ void build(const forecast::Forecast &fc) {
             lastMinute = minute;
             lv_label_set_text_fmt(static_cast<lv_obj_t *>(lv_timer_get_user_data(t)), "%02d:%02d", tm.tm_hour,
                                   tm.tm_min);
+            applyFreshness();  // staleness changes with time, not just with new data
         },
         1000, clock);
 
@@ -446,6 +579,8 @@ void build(const forecast::Forecast &fc) {
 
     s_regionLabel = makeLabel(header, "", &lv_font_montserrat_24, kAccentColor);
     lv_obj_align(s_regionLabel, LV_ALIGN_RIGHT_MID, -(kRefreshSize + 4), 0);
+    s_warnIcon = makeLabel(header, LV_SYMBOL_WARNING, &lv_font_montserrat_24, kWarnColor);
+    lv_obj_add_flag(s_warnIcon, LV_OBJ_FLAG_HIDDEN);
 
     // Tabs
     lv_obj_t *tv = lv_tabview_create(scr);
@@ -483,9 +618,7 @@ void build(const forecast::Forecast &fc) {
 
 void showForecast(const forecast::Forecast &fc) {
     lv_label_set_text(s_regionLabel, fc.region.c_str());
-    String issued = fc.valid ? "Issued " + fc.issued : fc.issued;
-    lv_label_set_text(s_issuedLabel, issued.c_str());
-    buildDangerTab(fc);
+    buildDangerTab(fc);  // also updates the issued line and freshness styling
     buildProblemsTab(fc);
     buildConditionsTab(fc);
     buildDetailsTab(fc);
@@ -551,12 +684,18 @@ void showWeather(const weather::Weather &w) {
     s_wx.valid = true;
     lv_obj_add_flag(s_wx.message, LV_OBJ_FLAG_HIDDEN);
     lv_obj_remove_flag(s_wx.content, LV_OBJ_FLAG_HIDDEN);
+
+    s_fresh.wxFetched = w.fetched;
+    s_fresh.wxError = false;
+    s_fresh.lastKey = -1;
+    applyFreshness();
 }
 
 void setWeatherError(const char *text) {
     setHourlyMessage(text);  // only shown while the Hourly tab has no data
     if (s_wx.valid) {
         // Keep showing the last good data; flag the problem in the "Updated" line.
+        s_fresh.wxError = true;
         lv_label_set_text(s_wx.updated, text);
         lv_obj_set_style_text_color(s_wx.updated, lv_color_hex(0xF7941E), 0);
     } else {

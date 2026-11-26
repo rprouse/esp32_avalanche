@@ -16,6 +16,7 @@ constexpr int kDays = 3;
 
 struct DayRating {
     String label;  // e.g. "Thursday"
+    time_t date = 0;  // UTC epoch within that day (API gives 23:00Z = 16:00 Pacific)
     Danger alpine = Danger::NoRating;
     Danger treeline = Danger::NoRating;
     Danger belowTreeline = Danger::NoRating;
@@ -47,6 +48,7 @@ struct Forecast {
     String issued;      // formatted local time, e.g. "Wed Nov 25 16:00"
     String validUntil;  // formatted local time
     time_t issuedUtc = 0;
+    time_t validUntilUtc = 0;
     DayRating days[kDays];
     std::vector<Problem> problems;
     String highlights;

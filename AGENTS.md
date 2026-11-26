@@ -283,6 +283,29 @@ include/
 - NTP is started (`configTzTime`) only after Wi-Fi connects. Starting it earlier made the first
   sync take ~30 s.
 
+## Stale forecast warning (`applyFreshness()` in `src/ui/ui.cpp`)
+
+A safety cue so an old forecast is never mistaken for a current one. It's subtle but obvious:
+no pop-ups and nothing hidden.
+
+| State | When | Shows |
+|---|---|---|
+| Fresh | before `validUntil + 2 h` | normal |
+| Overdue | `validUntil + 2 h` .. `+ 24 h` | amber warning icon before the header location, location in amber, Danger footer "Not yet updated - issued ..." |
+| Expired | more than `validUntil + 24 h` | same in red-orange, footer "Expired - issued ...", current/future day cells outlined |
+| Unknown | forecast shown but clock not set | amber, footer "... can't confirm it's current (clock not set)" |
+
+- The 2 h grace avoids a false alarm every evening: `validUntil` is about 17:00 local, the daily
+  check is 17:30, and re-checks follow if the forecast is late.
+- Days whose date has passed (from `dangerRatings[].date.value`) are always faded to 40%, with a
+  "Past" tag under the day name.
+- Weather: the "Updated" line turns amber when the weather is more than 2 h old.
+- Re-evaluated every minute from the header clock's LVGL timer and on every new forecast/weather.
+  It restyles only when the computed state changes, since each change redraws the full frame.
+- **Test hook:** build with `$env:PLATFORMIO_BUILD_FLAGS='-DFRESHNESS_TEST_OFFSET_HOURS=46'` to
+  pretend it's 46 h later for these checks only (clear the variable afterwards). Use ~22 h after an
+  evening forecast for Overdue, ~46 h for Expired.
+
 ## Offline cache (`src/storage/cache.*`)
 
 - The raw JSON responses are saved on the LittleFS filesystem in the `spiffs` partition of
@@ -307,4 +330,4 @@ include/
 
 Planned work is tracked in GitHub issues: https://github.com/rprouse/esp32_avalanche/issues
 (`gh issue list`). Each issue includes context and pointers into the code. Keep ideas
-there rather than in this file. Highest priority: #1 (stale forecast warning).
+there rather than in this file. 

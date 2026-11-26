@@ -211,6 +211,7 @@ bool parse(const String &json, Forecast &out, String &error) {
     r["summaries"][0]["content"] = true;
     JsonObject dr = r["dangerRatings"][0].to<JsonObject>();
     dr["date"]["display"] = true;
+    dr["date"]["value"] = true;
     for (const char *band : {"alp", "tln", "btl"}) dr["ratings"][band]["rating"]["value"] = true;
     JsonObject pr = r["problems"][0].to<JsonObject>();
     pr["type"]["display"] = true;
@@ -237,7 +238,8 @@ bool parse(const String &json, Forecast &out, String &error) {
     out.title = report["title"] | "";
     out.issuedUtc = parseIsoUtc(report["dateIssued"]);
     out.issued = formatLocal(out.issuedUtc);
-    out.validUntil = formatLocal(parseIsoUtc(report["validUntil"]));
+    out.validUntilUtc = parseIsoUtc(report["validUntil"]);
+    out.validUntil = formatLocal(out.validUntilUtc);
     out.highlights = htmlToText(report["highlights"]);
 
     out.travelAdvice.clear();
@@ -263,6 +265,7 @@ bool parse(const String &json, Forecast &out, String &error) {
         if (day >= kDays) break;
         DayRating &dr = out.days[day++];
         dr.label = d["date"]["display"] | "";
+        dr.date = parseIsoUtc(d["date"]["value"]);
         dr.alpine = parseDanger(d["ratings"]["alp"]["rating"]["value"]);
         dr.treeline = parseDanger(d["ratings"]["tln"]["rating"]["value"]);
         dr.belowTreeline = parseDanger(d["ratings"]["btl"]["rating"]["value"]);
