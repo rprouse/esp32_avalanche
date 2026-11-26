@@ -85,7 +85,7 @@ int localDayKey(time_t t) {
     return (tm.tm_year + 1900) * 1000 + tm.tm_yday;
 }
 
-bool parseForecast(const String &body, bool metric, std::vector<Day> &days, String &error) {
+bool parseForecast(const String &body, bool metric, time_t now, std::vector<Day> &days, String &error) {
     JsonDocument filter;
     JsonObject item = filter["list"][0].to<JsonObject>();
     item["dt"] = true;
@@ -105,7 +105,7 @@ bool parseForecast(const String &body, bool metric, std::vector<Day> &days, Stri
     }
 
     const float precipScale = metric ? 1.0f : 1.0f / 25.4f;  // API always reports mm
-    const int today = localDayKey(time(nullptr));
+    const int today = localDayKey(now);
     days.clear();
     int currentKey = -1;
     int bestMiddayDistance = 99;
@@ -156,16 +156,26 @@ bool parseForecast(const String &body, bool metric, std::vector<Day> &days, Stri
 
 }  // namespace
 
-bool fetch(double lat, double lon, const char *apiKey, bool metric, const char *lang, Weather &out, String &error) {
-    String body;
-    if (!httpGet(baseUrl("weather", lat, lon, apiKey, metric, lang), body, error)) return false;
-    if (!parseCurrent(body, metric, out.now, error)) return false;
-    body = String();
-    if (!httpGet(baseUrl("forecast", lat, lon, apiKey, metric, lang), body, error)) return false;
-    if (!parseForecast(body, metric, out.days, error)) return false;
+bool parse(const String &currentBody, const String &forecastBody, bool metric, time_t now, Weather &out,
+           String &error) {
+    if (!parseCurrent(currentBody, metric, out.now, error)) return false;
+    if (!parseForecast(forecastBody, metric, now, out.days, error)) return false;
     out.metric = metric;
-    out.fetched = time(nullptr);
     out.valid = true;
+    return true;
+}
+
+bool fetch(double lat, double lon, const char *apiKey, bool metric, const char *lang, Weather &out, String &error,
+           String *currentBody, String *forecastBody) {
+    String current, forecast;
+    if (!httpGet(baseUrl("weather", lat, lon, apiKey, metric, lang), current, error)) return false;
+    if (!httpGet(baseUrl("forecast", lat, lon, apiKey, metric, lang), forecast, error)) return false;
+    const time_t now = time(nullptr);
+    if (!parse(current, forecast, metric, now, out, error)) return false;
+    out.fetched = now;
+    out.fromCache = false;
+    if (currentBody != nullptr) *currentBody = current;
+    if (forecastBody != nullptr) *forecastBody = forecast;
     return true;
 }
 

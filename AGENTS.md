@@ -152,6 +152,7 @@ src/
   weather/moon_phase.cpp      Moon phase (ported from the CYD weather station / Bodmer)
   weather/weather_icons.*     GENERATED LVGL images (git-ignored), see below
   net/root_ca.*               Pinned root CA bundle for all HTTPS hosts
+  storage/cache.*             LittleFS cache of the last API responses (survives power loss)
 assets/weather-icons/         Source BMP icons (Bodmer, FreeBSD license)
 tools/convert_icons.py        BMP -> LVGL RGB565A8 converter (brightness -> alpha)
 tools/pio_generate_icons.py   PlatformIO pre-build hook that runs the converter when stale
@@ -260,10 +261,28 @@ include/
 - NTP is started (`configTzTime`) only after Wi-Fi connects. Starting it earlier made the first
   sync take ~30 s.
 
+## Offline cache (`src/storage/cache.*`)
+
+- The raw JSON responses are saved on the LittleFS filesystem in the `spiffs` partition of
+  `default_16MB.csv` (3.4 MB, mounted with `LittleFS.begin(true)`, formatted on first use):
+  `/avalanche.cache` (~8 KB, written only when the issued time changes), and `/wx_current.cache` +
+  `/wx_forecast.cache` (~17 KB, written on every weather refresh).
+- At boot `updater::loadCached()` parses them with the **same parsers** as live downloads and
+  shows them before Wi-Fi connects (about 1.5 s after power-on). Live data replaces them once it
+  downloads.
+- Each file starts with a header line `<fetched epoch> <key>`. The key is lat,lon,lang(,units), and
+  entries saved for different settings are ignored, so a `config.h` change never shows another
+  place's data.
+- Writes go to `<name>.tmp` and are renamed over the old file, so a power cut mid-write keeps the
+  previous copy.
+- After a power loss the clock is unset until NTP syncs. Weather days ("Today", etc.) and the
+  day/night icon then use the download time, and the Weather tab says "Saved Wed 18:57"
+  instead of "Updated 18:57". If Wi-Fi is down, the Danger footer says
+  "Offline - showing saved forecast". The forecast's own issued time shows how old it is.
+- To clear the cache: `pio run -t erase` (erases all flash), or delete the files from code.
+
 ## Roadmap / next steps
 
-1. Cache the last forecast in flash (LittleFS/NVS) so it shows immediately on boot or
-   while offline, and show a "stale" indicator if the data is old.
-2. Optional: on-device Wi-Fi setup (captive portal) instead of `config.h`.
-3. Optional: screen off at night (backlight via EXIO2) and/or touch to wake.
-4. Optional: show a clock in the header (the CYD weather station had one).
+1. Optional: on-device Wi-Fi setup (captive portal) instead of `config.h`.
+2. Optional: screen off at night (backlight via EXIO2) and/or touch to wake.
+3. Optional: show a clock in the header (the CYD weather station had one).

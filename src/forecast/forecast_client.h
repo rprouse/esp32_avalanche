@@ -13,8 +13,11 @@
  */
 namespace forecast {
 
-/** Returns true on success. On failure, `error` holds a short description. */
-bool fetch(double lat, double lon, const char *lang, Forecast &out, String &error);
+/**
+ * Returns true on success. On failure, `error` holds a short description.
+ * If `rawBody` is given it receives the JSON response (for caching).
+ */
+bool fetch(double lat, double lon, const char *lang, Forecast &out, String &error, String *rawBody = nullptr);
 
 /** Parse an API response body. Exposed separately for testing. */
 bool parse(const String &json, Forecast &out, String &error);

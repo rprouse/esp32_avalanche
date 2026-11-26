@@ -276,7 +276,7 @@ bool parse(const String &json, Forecast &out, String &error) {
     return true;
 }
 
-bool fetch(double lat, double lon, const char *lang, Forecast &out, String &error) {
+bool fetch(double lat, double lon, const char *lang, Forecast &out, String &error, String *rawBody) {
     char url[160];
     snprintf(url, sizeof url, "https://api.avalanche.ca/forecasts/%s/products/point?lat=%.4f&long=%.4f", lang, lat,
              lon);
@@ -308,7 +308,9 @@ bool fetch(double lat, double lon, const char *lang, Forecast &out, String &erro
         error = "Empty response";
         return false;
     }
-    return parse(body, out, error);
+    if (!parse(body, out, error)) return false;
+    if (rawBody != nullptr) *rawBody = body;
+    return true;
 }
 
 }  // namespace forecast

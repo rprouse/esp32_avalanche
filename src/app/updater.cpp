@@ -8,6 +8,7 @@
 #include "app_config.h"
 #include "display/display_port.h"
 #include "forecast/forecast_client.h"
+#include "storage/cache.h"
 #include "ui/ui.h"
 #include "weather/weather.h"
 
@@ -91,6 +92,23 @@ String hhmm(time_t t) {
     return buf;
 }
 
+// Cache keys: a cached response is only reused for the same request settings.
+String avalancheKey() {
+    return String(FORECAST_LATITUDE, 4) + "," + String(FORECAST_LONGITUDE, 4) + "," + FORECAST_LANGUAGE;
+}
+String weatherKey() {
+    return String(WEATHER_LATITUDE, 4) + "," + String(WEATHER_LONGITUDE, 4) + "," + FORECAST_LANGUAGE + "," +
+           (WEATHER_UNITS_METRIC ? "metric" : "imperial");
+}
+
+String dateTime(time_t t) {
+    struct tm tm;
+    localtime_r(&t, &tm);
+    char buf[32];
+    strftime(buf, sizeof buf, "%a %b %d, %H:%M", &tm);
+    return buf;
+}
+
 // ------------------------------------------------------------------ avalanche forecast
 
 struct AvalancheState {
@@ -108,7 +126,8 @@ void updateAvalanche(time_t now, bool manual) {
     forecast::Forecast fc;
     fc.region = FORECAST_NAME;
     String error;
-    if (!forecast::fetch(FORECAST_LATITUDE, FORECAST_LONGITUDE, FORECAST_LANGUAGE, fc, error)) {
+    String body;
+    if (!forecast::fetch(FORECAST_LATITUDE, FORECAST_LONGITUDE, FORECAST_LANGUAGE, fc, error, &body)) {
         log_w("Forecast download failed: %s", error.c_str());
         status((s_av.haveForecast ? "Update failed: " : "Download failed: ") + error, ui::StatusLevel::Error);
         if (!manual || scheduled == 0) s_av.next = now + FORECAST_RETRY_MINUTES * 60;
@@ -118,6 +137,7 @@ void updateAvalanche(time_t now, bool manual) {
     if (changed) {
         s_av.shownIssued = fc.issuedUtc;
         s_av.haveForecast = true;
+        cache::save("avalanche", now, avalancheKey(), body);  // only when it changes: ~1 write/day
         display::Lock lock;
         ui::showForecast(fc);
     }
@@ -149,14 +169,17 @@ time_t s_weatherNext = 0;
 void updateWeather(time_t now) {
     weather::Weather w;
     String error;
+    String currentBody, forecastBody;
     if (!weather::fetch(WEATHER_LATITUDE, WEATHER_LONGITUDE, OPENWEATHER_API_KEY, WEATHER_UNITS_METRIC,
-                        FORECAST_LANGUAGE, w, error)) {
+                        FORECAST_LANGUAGE, w, error, &currentBody, &forecastBody)) {
         log_w("Weather download failed: %s", error.c_str());
         display::Lock lock;
         ui::setWeatherError(("Weather update failed: " + error).c_str());
         s_weatherNext = now + FORECAST_RETRY_MINUTES * 60;
         return;
     }
+    cache::save("wx_current", w.fetched, weatherKey(), currentBody);
+    cache::save("wx_forecast", w.fetched, weatherKey(), forecastBody);
     {
         display::Lock lock;
         ui::showWeather(w);
@@ -164,6 +187,49 @@ void updateWeather(time_t now) {
     s_weatherNext = now + WEATHER_REFRESH_MINUTES * 60;
     log_i("Weather updated: %.1f, %s. Free heap %u", w.now.temp, w.now.description.c_str(),
           (unsigned)ESP.getFreeHeap());
+}
+
+// Show whatever was saved before the last power-off, before touching the network.
+void loadCached() {
+    if (!cache::begin()) return;
+
+    time_t fetched = 0;
+    String body;
+    if (cache::load("avalanche", avalancheKey(), fetched, body)) {
+        forecast::Forecast fc;
+        fc.region = FORECAST_NAME;
+        String error;
+        if (forecast::parse(body, fc, error)) {
+            s_av.shownIssued = fc.issuedUtc;
+            s_av.haveForecast = true;
+            display::Lock lock;
+            ui::showForecast(fc);
+            ui::setStatus(("Saved forecast, downloaded " + dateTime(fetched)).c_str(), ui::StatusLevel::Info);
+            log_i("Showing cached forecast (issued %s)", fc.issued.c_str());
+        } else {
+            log_w("Cached forecast unreadable: %s", error.c_str());
+        }
+    }
+
+    if (!kWeatherEnabled) return;
+    String current, forecastBody;
+    time_t fetchedCurrent = 0, fetchedForecast = 0;
+    if (cache::load("wx_current", weatherKey(), fetchedCurrent, current) &&
+        cache::load("wx_forecast", weatherKey(), fetchedForecast, forecastBody)) {
+        weather::Weather w;
+        String error;
+        // Clock is usually not set yet after a power loss: group days relative to the download time.
+        const time_t now = time(nullptr) > kValidTime ? time(nullptr) : fetchedForecast;
+        if (weather::parse(current, forecastBody, WEATHER_UNITS_METRIC, now, w, error)) {
+            w.fetched = fetchedCurrent;
+            w.fromCache = true;
+            display::Lock lock;
+            ui::showWeather(w);
+            log_i("Showing cached weather");
+        } else {
+            log_w("Cached weather unreadable: %s", error.c_str());
+        }
+    }
 }
 
 void task(void *) {
@@ -175,10 +241,12 @@ void task(void *) {
         display::Lock lock;
         ui::setWeatherError("Add OPENWEATHER_API_KEY to include/config.h to show the weather.");
     }
+    loadCached();
 
     for (;;) {
         if (!ensureWifi()) {
-            status("Wi-Fi connection failed - retrying", ui::StatusLevel::Error);
+            status(s_av.haveForecast ? "Offline - showing saved forecast" : "Wi-Fi connection failed - retrying",
+                   ui::StatusLevel::Error);
             waitOrRefresh(FORECAST_RETRY_MINUTES * 60UL * 1000UL);
             continue;
         }

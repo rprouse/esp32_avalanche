@@ -45,10 +45,21 @@ struct Weather {
     Current now;
     std::vector<Day> days;  // today + following days (up to 5)
     time_t fetched = 0;
+    bool fromCache = false;  // loaded from flash at boot rather than downloaded
 };
 
-/** Downloads current conditions and forecast. Wi-Fi and clock must be ready. */
-bool fetch(double lat, double lon, const char *apiKey, bool metric, const char *lang, Weather &out,
+/**
+ * Downloads current conditions and forecast. Wi-Fi and clock must be ready.
+ * If given, `currentBody`/`forecastBody` receive the raw JSON (for caching).
+ */
+bool fetch(double lat, double lon, const char *apiKey, bool metric, const char *lang, Weather &out, String &error,
+           String *currentBody = nullptr, String *forecastBody = nullptr);
+
+/**
+ * Parse saved responses. `now` decides which day is "Today" (pass the download time
+ * when the clock isn't set yet). Sets everything except `fetched`/`fromCache`.
+ */
+bool parse(const String &currentBody, const String &forecastBody, bool metric, time_t now, Weather &out,
            String &error);
 
 /** Icon for a condition code. `night` picks the moon variants for clear/cloudy. */

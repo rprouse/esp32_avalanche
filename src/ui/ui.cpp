@@ -457,7 +457,8 @@ void setStatus(const char *text, StatusLevel level) {
 
 void showWeather(const weather::Weather &w) {
     const auto &c = w.now;
-    const time_t now = time(nullptr);
+    // Before NTP sync (e.g. offline after a power loss) use the download time instead.
+    const time_t now = time(nullptr) > 1700000000 ? time(nullptr) : w.fetched;
     const bool night = c.sunrise && c.sunset && (now < c.sunrise || now > c.sunset);
     const bool m = w.metric;
     const char *speed = m ? "km/h" : "mph";
@@ -466,7 +467,15 @@ void showWeather(const weather::Weather &w) {
     lv_label_set_text(s_wx.temp, fmtTemp(c.temp, true, m).c_str());
     lv_label_set_text(s_wx.desc, c.description.c_str());
     lv_label_set_text(s_wx.feels, ("Feels like " + fmtTemp(c.feelsLike, false, m)).c_str());
-    lv_label_set_text(s_wx.updated, ("Updated " + fmtClock(w.fetched)).c_str());
+    if (w.fromCache) {
+        struct tm tm;
+        localtime_r(&w.fetched, &tm);
+        char buf[32];
+        strftime(buf, sizeof buf, "Saved %a %H:%M", &tm);
+        lv_label_set_text(s_wx.updated, buf);
+    } else {
+        lv_label_set_text(s_wx.updated, ("Updated " + fmtClock(w.fetched)).c_str());
+    }
     lv_obj_set_style_text_color(s_wx.updated, lv_color_hex(kMutedColor), 0);
 
     lv_image_set_src(s_wx.windIcon, weather::windIcon(c.windDeg));

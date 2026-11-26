@@ -23,6 +23,8 @@ built with PlatformIO (pioarduino), Arduino-ESP32 3.3 and LVGL 9.
   - **Details**: highlights, travel advice and confidence
 - The Weather tab needs a free [OpenWeatherMap](https://openweathermap.org/api) API key in `config.h`
   (`OPENWEATHER_API_KEY`); without one the tab explains how to enable it.
+- The last forecast and weather are saved to flash and shown immediately at power-on, even with no
+  internet, until fresh data downloads.
 - The refresh button in the header downloads both reports immediately. The Danger tab footer shows when
   the avalanche forecast was issued and last updated.
 
