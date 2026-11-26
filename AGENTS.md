@@ -144,7 +144,7 @@ src/
   app_config.h                includes include/config.h + defaults
   app/updater.*               Task on core 0: Wi-Fi, NTP, fetch schedule, retries, pushes to UI
   display/display_port.*      Board + LVGL glue: init, flush, touch read, LVGL task, mutex
-  ui/ui.*                     All LVGL screens (header + status line, tabview)
+  ui/ui.*                     All LVGL screens (header with refresh button, tabview)
   forecast/forecast.*         Forecast data model, danger-scale names/colours, placeholder
   forecast/forecast_client.*  HTTPS download, JSON -> Forecast, HTML -> plain text
   weather/weather.h           Weather model + icon/moon helpers
@@ -184,6 +184,12 @@ include/
 ### UI conventions
 
 - 800x480 landscape, dark theme, 56 px header, 64 px bottom tab bar (big touch targets).
+- Tab order: Weather (default), Danger, Problems, Conditions, Details.
+- Header: title (left), location + refresh button (right). The refresh button calls
+  `updater::requestRefresh()`, which wakes the updater task to fetch both sources now without
+  changing the daily avalanche schedule; the button is disabled while it runs.
+- The avalanche issued time and download status (`ui::setStatus`) are in the Danger tab footer.
+  The Weather tab shows its own "Updated" time.
 - Fonts enabled: Montserrat 14/20/24/28/40 (default 20). Enable more in `lv_conf.h`.
 - Danger colours follow the North American Public Avalanche Danger Scale (see
   `forecast::dangerColor`). Text on High/Extreme is white, black otherwise.

@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <atomic>
 #include <time.h>
 
 #include "app_config.h"
@@ -16,6 +17,14 @@ namespace {
 constexpr uint32_t kWifiConnectTimeoutMs = 20000;
 constexpr uint32_t kTimeSyncTimeoutMs = 30000;
 constexpr time_t kValidTime = 1700000000;  // anything before Nov 2023 means "clock not set"
+
+TaskHandle_t s_task = nullptr;
+std::atomic<bool> s_manualRefresh{false};
+
+/** Sleep up to `ms`, waking early if requestRefresh() is called. */
+void waitOrRefresh(uint32_t ms) {
+    ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(ms));
+}
 
 void status(const String &text, ui::StatusLevel level) {
     log_i("%s", text.c_str());
@@ -92,15 +101,17 @@ struct AvalancheState {
     int rechecks = 0;
 } s_av;
 
-void updateAvalanche(time_t now) {
-    status("Downloading forecast...", ui::StatusLevel::Info);
+// `manual` = triggered by the refresh button: fetch now, but keep the daily schedule.
+void updateAvalanche(time_t now, bool manual) {
+    const time_t scheduled = s_av.next;
+    status(manual ? "Refreshing..." : "Downloading forecast...", ui::StatusLevel::Info);
     forecast::Forecast fc;
     fc.region = FORECAST_NAME;
     String error;
     if (!forecast::fetch(FORECAST_LATITUDE, FORECAST_LONGITUDE, FORECAST_LANGUAGE, fc, error)) {
         log_w("Forecast download failed: %s", error.c_str());
         status((s_av.haveForecast ? "Update failed: " : "Download failed: ") + error, ui::StatusLevel::Error);
-        s_av.next = now + FORECAST_RETRY_MINUTES * 60;
+        if (!manual || scheduled == 0) s_av.next = now + FORECAST_RETRY_MINUTES * 60;
         return;
     }
     const bool changed = fc.issuedUtc != s_av.shownIssued;
@@ -110,7 +121,13 @@ void updateAvalanche(time_t now) {
         display::Lock lock;
         ui::showForecast(fc);
     }
-    if (s_av.dailyCheck && !changed && s_av.rechecks < FORECAST_RECHECK_MAX) {
+    if (manual && scheduled != 0) {
+        // Keep the existing schedule, unless this found the forecast we were re-checking for.
+        if (changed && s_av.rechecks > 0) {
+            s_av.rechecks = 0;
+            s_av.next = nextDailyCheck(now);
+        }
+    } else if (s_av.dailyCheck && !changed && s_av.rechecks < FORECAST_RECHECK_MAX) {
         // Today's forecast isn't out yet; look again soon.
         ++s_av.rechecks;
         s_av.next = now + FORECAST_RECHECK_MINUTES * 60;
@@ -119,7 +136,7 @@ void updateAvalanche(time_t now) {
         s_av.dailyCheck = true;
         s_av.next = nextDailyCheck(now);
     }
-    status("Checked " + hhmm(now) + ", next check " + hhmm(s_av.next), ui::StatusLevel::Ok);
+    status("Updated " + hhmm(now) + ", next check " + hhmm(s_av.next), ui::StatusLevel::Ok);
     log_i("Forecast %s (issued %s). Free heap %u, PSRAM %u", changed ? "updated" : "unchanged", fc.issued.c_str(),
           (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getFreePsram());
 }
@@ -162,27 +179,41 @@ void task(void *) {
     for (;;) {
         if (!ensureWifi()) {
             status("Wi-Fi connection failed - retrying", ui::StatusLevel::Error);
-            delay(FORECAST_RETRY_MINUTES * 60UL * 1000UL);
+            waitOrRefresh(FORECAST_RETRY_MINUTES * 60UL * 1000UL);
             continue;
         }
         if (!ensureTime()) {
             status("Clock sync failed - retrying", ui::StatusLevel::Error);
-            delay(FORECAST_RETRY_MINUTES * 60UL * 1000UL);
+            waitOrRefresh(FORECAST_RETRY_MINUTES * 60UL * 1000UL);
             continue;
         }
 
         const time_t now = time(nullptr);
-        if (now >= s_av.next) updateAvalanche(now);
-        if (kWeatherEnabled && now >= s_weatherNext) updateWeather(time(nullptr));
+        const bool manual = s_manualRefresh.exchange(false);
+        if (manual) {
+            display::Lock lock;
+            ui::setRefreshing(true);
+        }
+        if (manual || now >= s_av.next) updateAvalanche(now, manual);
+        if (kWeatherEnabled && (manual || now >= s_weatherNext)) updateWeather(time(nullptr));
+        if (manual) {
+            display::Lock lock;
+            ui::setRefreshing(false);
+        }
 
-        delay(1000);
+        waitOrRefresh(1000);
     }
 }
 
 }  // namespace
 
 void start() {
-    xTaskCreatePinnedToCore(task, "updater", 16 * 1024, nullptr, 1, nullptr, 0);
+    xTaskCreatePinnedToCore(task, "updater", 16 * 1024, nullptr, 1, &s_task, 0);
+}
+
+void requestRefresh() {
+    s_manualRefresh = true;
+    if (s_task != nullptr) xTaskNotifyGive(s_task);
 }
 
 }  // namespace updater

@@ -26,6 +26,10 @@ void setup() {
 
     // Wi-Fi, NTP and forecast downloads run in their own task (core 0).
     updater::start();
+    {
+        display::Lock lock;
+        ui::setRefreshCallback(updater::requestRefresh);
+    }
 }
 
 void loop() {

@@ -9,11 +9,12 @@
  *
  * Layout (800x480):
  *   +--------------------------------------------------+
- *   | title        region             issued / status  |  56 px
+ *   | title                            region  [refresh]|  56 px
  *   +--------------------------------------------------+
  *   | tab content (swipe left/right or tap a tab)      |
+ *   | (Danger tab footer: issued time + update status) |
  *   +--------------------------------------------------+
- *   | Danger | Problems | Conditions | Details | Weather|  64 px tab bar
+ *   | Weather | Danger | Problems | Conditions | Details|  64 px tab bar
  *   +--------------------------------------------------+
  */
 namespace ui {
@@ -25,11 +26,16 @@ void build(const forecast::Forecast &fc);
 /** Replace the displayed forecast (e.g. after a daily download). */
 void showForecast(const forecast::Forecast &fc);
 
-/** Small status line in the header (connection/download state). */
+/** Status line (connection/download state) in the Danger tab footer. */
 void setStatus(const char *text, StatusLevel level);
 
 /** Weather tab: show new data, or an error/instruction message. */
 void showWeather(const weather::Weather &w);
 void setWeatherError(const char *text);
+
+/** Header refresh button: callback runs in the LVGL task (keep it short, e.g. notify a task). */
+void setRefreshCallback(void (*cb)());
+/** Grey out the refresh button while a refresh is running. */
+void setRefreshing(bool busy);
 
 }  // namespace ui

@@ -24,6 +24,9 @@ lv_obj_t *s_regionLabel = nullptr;
 lv_obj_t *s_issuedLabel = nullptr;
 lv_obj_t *s_statusLabel = nullptr;
 lv_obj_t *s_dangerTab = nullptr;
+lv_obj_t *s_dangerGrid = nullptr;  // rebuilt on each forecast; the footer below it is persistent
+lv_obj_t *s_refreshBtn = nullptr;
+void (*s_refreshCb)() = nullptr;
 lv_obj_t *s_problemsTab = nullptr;
 lv_obj_t *s_conditionsTab = nullptr;
 lv_obj_t *s_detailsTab = nullptr;
@@ -84,20 +87,12 @@ void styleDangerCell(lv_obj_t *cell, Danger d) {
 // ---------------------------------------------------------------- Danger tab
 
 void buildDangerTab(const forecast::Forecast &fc) {
-    lv_obj_clean(s_dangerTab);
-    lv_obj_set_style_pad_all(s_dangerTab, 12, 0);
-
     static const int32_t cols[] = {200, LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST};
-    static const int32_t rows[] = {40, LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1), 28, LV_GRID_TEMPLATE_LAST};
+    static const int32_t rows[] = {40, LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST};
 
-    lv_obj_t *grid = lv_obj_create(s_dangerTab);
-    lv_obj_set_size(grid, LV_PCT(100), LV_PCT(100));
-    lv_obj_set_style_bg_opa(grid, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(grid, 0, 0);
-    lv_obj_set_style_pad_all(grid, 0, 0);
-    lv_obj_set_style_pad_gap(grid, 8, 0);
+    lv_obj_t *grid = s_dangerGrid;
+    lv_obj_clean(grid);
     lv_obj_set_grid_dsc_array(grid, cols, rows);
-    lv_obj_remove_flag(grid, LV_OBJ_FLAG_SCROLLABLE);
 
     for (int day = 0; day < forecast::kDays; ++day) {
         lv_obj_t *h = makeLabel(grid, fc.days[day].label.c_str(), &lv_font_montserrat_24);
@@ -123,10 +118,34 @@ void buildDangerTab(const forecast::Forecast &fc) {
             styleDangerCell(cell, d);
         }
     }
+}
 
-    String foot = fc.validUntil.length() ? "Valid until " + fc.validUntil : String("");
-    lv_obj_t *hint = makeLabel(grid, foot.c_str(), &lv_font_montserrat_14, kMutedColor);
-    lv_obj_set_grid_cell(hint, LV_GRID_ALIGN_CENTER, 0, 4, LV_GRID_ALIGN_CENTER, 4, 1);
+/** Danger tab skeleton: grid (filled by buildDangerTab) + footer with issued time and status. */
+void buildDangerSkeleton() {
+    lv_obj_set_style_pad_all(s_dangerTab, 12, 0);
+    lv_obj_set_style_pad_row(s_dangerTab, 8, 0);
+    lv_obj_set_flex_flow(s_dangerTab, LV_FLEX_FLOW_COLUMN);
+    lv_obj_remove_flag(s_dangerTab, LV_OBJ_FLAG_SCROLLABLE);
+
+    s_dangerGrid = lv_obj_create(s_dangerTab);
+    lv_obj_set_width(s_dangerGrid, LV_PCT(100));
+    lv_obj_set_flex_grow(s_dangerGrid, 1);
+    lv_obj_set_style_bg_opa(s_dangerGrid, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(s_dangerGrid, 0, 0);
+    lv_obj_set_style_pad_all(s_dangerGrid, 0, 0);
+    lv_obj_set_style_pad_gap(s_dangerGrid, 8, 0);
+    lv_obj_remove_flag(s_dangerGrid, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *footer = lv_obj_create(s_dangerTab);
+    lv_obj_set_size(footer, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(footer, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(footer, 0, 0);
+    lv_obj_set_style_pad_all(footer, 0, 0);
+    lv_obj_remove_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(footer, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(footer, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    s_issuedLabel = makeLabel(footer, "", &lv_font_montserrat_14, kBodyColor);
+    s_statusLabel = makeLabel(footer, "", &lv_font_montserrat_14, kMutedColor);
 }
 
 // ---------------------------------------------------------------- Problems tab
@@ -341,12 +360,32 @@ void build(const forecast::Forecast &fc) {
 
     lv_obj_t *title = makeLabel(header, "Avalanche Forecast", &lv_font_montserrat_28);
     lv_obj_align(title, LV_ALIGN_LEFT_MID, 0, 0);
+
+    // Refresh button (far right), location to its left.
+    constexpr int32_t kRefreshSize = 48;
+    s_refreshBtn = lv_button_create(header);
+    lv_obj_set_size(s_refreshBtn, kRefreshSize, kRefreshSize);
+    lv_obj_align(s_refreshBtn, LV_ALIGN_RIGHT_MID, 8, 0);
+    lv_obj_set_style_bg_opa(s_refreshBtn, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_bg_opa(s_refreshBtn, LV_OPA_COVER, LV_STATE_PRESSED);
+    lv_obj_set_style_bg_color(s_refreshBtn, lv_color_hex(0x2A3A4D), LV_STATE_PRESSED);
+    lv_obj_set_style_shadow_width(s_refreshBtn, 0, 0);
+    lv_obj_set_style_radius(s_refreshBtn, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_text_color(s_refreshBtn, lv_color_white(), 0);
+    lv_obj_set_style_text_color(s_refreshBtn, lv_color_hex(0x55606C), LV_STATE_DISABLED);
+    lv_obj_set_style_text_font(s_refreshBtn, &lv_font_montserrat_24, 0);
+    lv_obj_t *icon = lv_label_create(s_refreshBtn);
+    lv_label_set_text(icon, LV_SYMBOL_REFRESH);
+    lv_obj_center(icon);
+    lv_obj_add_event_cb(
+        s_refreshBtn,
+        [](lv_event_t *) {
+            if (s_refreshCb != nullptr) s_refreshCb();
+        },
+        LV_EVENT_CLICKED, nullptr);
+
     s_regionLabel = makeLabel(header, "", &lv_font_montserrat_24, kAccentColor);
-    lv_obj_align(s_regionLabel, LV_ALIGN_LEFT_MID, 300, 0);
-    s_issuedLabel = makeLabel(header, "", &lv_font_montserrat_14, kBodyColor);
-    lv_obj_align(s_issuedLabel, LV_ALIGN_TOP_RIGHT, 0, 2);
-    s_statusLabel = makeLabel(header, "", &lv_font_montserrat_14, kMutedColor);
-    lv_obj_align(s_statusLabel, LV_ALIGN_BOTTOM_RIGHT, 0, -2);
+    lv_obj_align(s_regionLabel, LV_ALIGN_RIGHT_MID, -(kRefreshSize + 4), 0);
 
     // Tabs
     lv_obj_t *tv = lv_tabview_create(scr);
@@ -361,11 +400,11 @@ void build(const forecast::Forecast &fc) {
     lv_obj_set_style_text_font(bar, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(bar, lv_color_hex(kMutedColor), 0);
 
+    lv_obj_t *weatherTab = lv_tabview_add_tab(tv, "Weather");  // first = shown at boot
     s_dangerTab = lv_tabview_add_tab(tv, "Danger");
     s_problemsTab = lv_tabview_add_tab(tv, "Problems");
     s_conditionsTab = lv_tabview_add_tab(tv, "Conditions");
     s_detailsTab = lv_tabview_add_tab(tv, "Details");
-    lv_obj_t *weatherTab = lv_tabview_add_tab(tv, "Weather");
 
     const uint32_t n = lv_obj_get_child_count(bar);
     for (uint32_t i = 0; i < n; ++i) {
@@ -376,6 +415,7 @@ void build(const forecast::Forecast &fc) {
     }
 
     buildWeatherTab(weatherTab);
+    buildDangerSkeleton();
     showForecast(fc);
 }
 
@@ -387,6 +427,14 @@ void showForecast(const forecast::Forecast &fc) {
     buildProblemsTab(fc);
     buildConditionsTab(fc);
     buildDetailsTab(fc);
+}
+
+void setRefreshCallback(void (*cb)()) { s_refreshCb = cb; }
+
+void setRefreshing(bool busy) {
+    if (s_refreshBtn == nullptr) return;
+    if (busy) lv_obj_add_state(s_refreshBtn, LV_STATE_DISABLED);
+    else lv_obj_remove_state(s_refreshBtn, LV_STATE_DISABLED);
 }
 
 void setStatus(const char *text, StatusLevel level) {

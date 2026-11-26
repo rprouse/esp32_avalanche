@@ -15,12 +15,16 @@ built with PlatformIO (pioarduino), Arduino-ESP32 3.3 and LVGL 9.
 
 - Downloads the [Avalanche Canada](https://avalanche.ca) forecast for the configured location at power-on
   and once a day (default 17:30 local), re-checking until the new forecast is published.
-- Tabs (swipe or tap): **Danger** (3-day ratings by elevation band), **Problems**, **Conditions**
-  (avalanche, snowpack and weather summaries), **Details** (highlights, travel advice, confidence),
-  **Weather** (current conditions, wind, sun and moon, 5-day forecast with snow and rain).
+- Tabs (swipe or tap):
+  - **Weather** (shown first): current conditions, wind, sun and moon, and a 5-day forecast with snow and rain
+  - **Danger**: 3-day ratings by elevation band
+  - **Problems**: avalanche problems
+  - **Conditions**: avalanche, snowpack and weather summaries
+  - **Details**: highlights, travel advice and confidence
 - The Weather tab needs a free [OpenWeatherMap](https://openweathermap.org/api) API key in `config.h`
   (`OPENWEATHER_API_KEY`); without one the tab explains how to enable it.
-- The header shows when the forecast was issued and the download status.
+- The refresh button in the header downloads both reports immediately. The Danger tab footer shows when
+  the avalanche forecast was issued and last updated.
 
 See [AGENTS.md](AGENTS.md) for hardware details, architecture, pitfalls and the roadmap.
 
