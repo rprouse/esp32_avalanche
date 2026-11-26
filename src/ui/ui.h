@@ -1,6 +1,7 @@
 #pragma once
 
 #include "forecast/forecast.h"
+#include "weather/weather.h"
 
 /**
  * LVGL user interface. All functions must be called with the display lock held
@@ -12,7 +13,7 @@
  *   +--------------------------------------------------+
  *   | tab content (swipe left/right or tap a tab)      |
  *   +--------------------------------------------------+
- *   | Danger | Problems | Conditions | Details | Touch  |  64 px tab bar
+ *   | Danger | Problems | Conditions | Details | Weather|  64 px tab bar
  *   +--------------------------------------------------+
  */
 namespace ui {
@@ -26,5 +27,9 @@ void showForecast(const forecast::Forecast &fc);
 
 /** Small status line in the header (connection/download state). */
 void setStatus(const char *text, StatusLevel level);
+
+/** Weather tab: show new data, or an error/instruction message. */
+void showWeather(const weather::Weather &w);
+void setWeatherError(const char *text);
 
 }  // namespace ui

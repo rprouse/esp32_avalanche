@@ -2,9 +2,11 @@
 
 /**
  * Background task (core 0) that keeps Wi-Fi up, syncs the clock via NTP and
- * downloads the forecast on the schedule in config.h, pushing results to the UI.
+ * downloads the avalanche forecast and the weather, pushing results to the UI.
  *
- * Schedule:
+ * Weather: every WEATHER_REFRESH_MINUTES (if OPENWEATHER_API_KEY is set).
+ *
+ * Avalanche forecast schedule:
  *   - fetch at boot
  *   - then daily at FORECAST_REFRESH_HOUR:FORECAST_REFRESH_MINUTE (local time)
  *   - if the daily fetch returns the same forecast (not published yet), re-check

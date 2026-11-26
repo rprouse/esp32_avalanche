@@ -32,3 +32,20 @@
 #ifndef FORECAST_RETRY_MINUTES
 #define FORECAST_RETRY_MINUTES 5
 #endif
+
+// Weather tab (optional; disabled when no API key is configured)
+#ifndef OPENWEATHER_API_KEY
+#define OPENWEATHER_API_KEY ""
+#endif
+#ifndef WEATHER_UNITS_METRIC
+#define WEATHER_UNITS_METRIC 1
+#endif
+#ifndef WEATHER_REFRESH_MINUTES
+#define WEATHER_REFRESH_MINUTES 30
+#endif
+#ifndef WEATHER_LATITUDE
+#define WEATHER_LATITUDE FORECAST_LATITUDE
+#endif
+#ifndef WEATHER_LONGITUDE
+#define WEATHER_LONGITUDE FORECAST_LONGITUDE
+#endif

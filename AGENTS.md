@@ -10,7 +10,8 @@ screens: danger ratings, avalanche problems, details, etc.
 
 Current state: working end to end. Connects to Wi-Fi, syncs time via NTP, downloads the
 Avalanche Canada forecast for the configured point (default Fernie, BC) at boot and then
-daily, and shows it in a tabbed LVGL UI (Danger, Problems, Conditions, Details, Touch test).
+daily, and shows it in a tabbed LVGL UI (Danger, Problems, Conditions, Details, Weather).
+The Weather tab uses OpenWeatherMap (optional API key in `config.h`).
 
 ## Local configuration (`include/config.h`, git-ignored)
 
@@ -146,6 +147,14 @@ src/
   ui/ui.*                     All LVGL screens (header + status line, tabview)
   forecast/forecast.*         Forecast data model, danger-scale names/colours, placeholder
   forecast/forecast_client.*  HTTPS download, JSON -> Forecast, HTML -> plain text
+  weather/weather.h           Weather model + icon/moon helpers
+  weather/weather_client.cpp  OpenWeatherMap current + 5 day/3 h forecast -> daily rows; icon mapping
+  weather/moon_phase.cpp      Moon phase (ported from the CYD weather station / Bodmer)
+  weather/weather_icons.*     GENERATED LVGL images (git-ignored), see below
+  net/root_ca.*               Pinned root CA bundle for all HTTPS hosts
+assets/weather-icons/         Source BMP icons (Bodmer, FreeBSD license)
+tools/convert_icons.py        BMP -> LVGL RGB565A8 converter (brightness -> alpha)
+tools/pio_generate_icons.py   PlatformIO pre-build hook that runs the converter when stale
 include/
   lv_conf.h, esp_panel_board_custom_conf.h
   config.sample.h             template for config.h (committed)
@@ -168,8 +177,9 @@ include/
 - Touch is polled by LVGL through `Touch::readPoints()`; coordinates are already screen
   coordinates (no swap/mirror). If touch ever appears mirrored, fix it with
   `ESP_PANEL_BOARD_TOUCH_SWAP_XY / MIRROR_X / MIRROR_Y` in the board conf, not in code.
-- No touch calibration routine is needed. The GT911 is capacitive and factory calibrated.
-  The "Touch Test" tab shows the raw point and its offset from 5 targets to verify alignment.
+- No touch calibration routine is needed. The GT911 is capacitive and factory calibrated;
+  alignment was verified on hardware with a test screen (removed; see git history,
+  commit 1afa426, `buildTouchTab` in `src/ui/ui.cpp`, if it's ever needed again).
 
 ### UI conventions
 
@@ -217,10 +227,33 @@ include/
   (ASCII plus `°` and `•`). French text loses its accents for that reason; a custom
   font would be needed for full French support.
 
+## Weather tab (OpenWeatherMap)
+
+- Adapted from `D:\src\Electronics\ESP32_CYD_Weather_Station_With_Forecast` (CYD 320x240,
+  TFT_eSPI). Only the data/icon logic was carried over; the UI is rebuilt in LVGL.
+- Uses the **free** endpoints `GET /data/2.5/weather` (current) and `GET /data/2.5/forecast`
+  (40 x 3-hour slots) on `api.openweathermap.org`, `units=metric|imperial`. Each refresh is 2
+  calls; default every 30 min. Wind arrives in m/s for metric and is shown in km/h.
+  Precipitation (`rain.3h`/`snow.3h`) is always in mm.
+- Forecast slots are grouped by **local** calendar day (`localtime_r` with the configured
+  TZ). Each day shows min/max temperature, max POP, summed snow/rain, and the condition
+  from the slot nearest 13:00.
+- Icons: 24-bit BMPs on black in `assets/weather-icons/` (100 px current, 50 px forecast,
+  60 px moon, 50 px wind). `tools/convert_icons.py` converts them to LVGL `RGB565A8` images
+  with alpha = brightness (un-premultiplied) so they blend onto the dark UI. The ~4.6 MB
+  generated C file is **not committed**; the PlatformIO pre-build hook regenerates it when the
+  BMPs or the converter change. Image data is ~860 KB of flash.
+- `OPENWEATHER_API_KEY` empty/missing => weather is disabled and the tab shows how to enable it.
+  **Never log the request URL**; it contains the API key.
+- TLS: api.openweathermap.org chains to **USERTrust RSA Certification Authority**; both roots
+  live in `src/net/root_ca.cpp`.
+- NTP is started (`configTzTime`) only after Wi-Fi connects. Starting it earlier made the first
+  sync take ~30 s.
+
 ## Roadmap / next steps
 
 1. Cache the last forecast in flash (LittleFS/NVS) so it shows immediately on boot or
    while offline, and show a "stale" indicator if the data is old.
 2. Optional: on-device Wi-Fi setup (captive portal) instead of `config.h`.
 3. Optional: screen off at night (backlight via EXIO2) and/or touch to wake.
-4. Optional: remove the Touch test tab once it's no longer needed.
+4. Optional: show a clock in the header (the CYD weather station had one).

@@ -50,3 +50,15 @@
 #define FORECAST_RECHECK_MAX      8
 // Retry interval after a network/download error.
 #define FORECAST_RETRY_MINUTES    5
+
+// ----------------------------------------------------------------------------- Weather tab (OpenWeatherMap)
+// Free API key from https://home.openweathermap.org/api_keys (the free plan allows
+// 1000 calls/day; each refresh uses 2). Leave empty to disable the Weather tab.
+#define OPENWEATHER_API_KEY      ""
+// 1 = metric (°C, km/h, mm), 0 = imperial (°F, mph, in)
+#define WEATHER_UNITS_METRIC     1
+#define WEATHER_REFRESH_MINUTES  30
+// Weather location. Defaults to the forecast location above; set these to use
+// a different point (e.g. a ski hill instead of town).
+// #define WEATHER_LATITUDE      49.4627
+// #define WEATHER_LONGITUDE     -115.0873

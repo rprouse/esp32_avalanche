@@ -1,9 +1,11 @@
 #include "ui.h"
 
-#include <climits>
+#include <cmath>
 #include <lvgl.h>
+#include <time.h>
 
 #include "display/display_port.h"
+#include "weather/weather.h"
 
 using forecast::Danger;
 
@@ -171,109 +173,149 @@ void buildDetailsTab(const forecast::Forecast &fc) {
     addTextCard(s_detailsTab, "Region", fc.title);
 }
 
-// ---------------------------------------------------------------- Touch test tab
+// ---------------------------------------------------------------- Weather tab
 //
-// The GT911 is a capacitive controller with factory calibration, so no runtime
-// calibration is needed. This screen lets you verify alignment: tap the targets
-// and check the reported offset is only a few pixels.
+// Left card: current conditions. Right card: daily forecast rows.
+// Built once; showWeather() updates labels/images and rebuilds the day rows.
 
-struct TouchTest {
-    lv_obj_t *pad;
-    lv_obj_t *hline;
-    lv_obj_t *vline;
-    lv_obj_t *dot;
-    lv_obj_t *readout;
-    lv_point_t targets[5];  // pad-local coordinates (the tab scrolls, so screen coords move)
-    uint32_t touches;
-} s_tt;
+constexpr uint32_t kLowTempColor = 0x7FD1F5;
 
-void onTouchPad(lv_event_t *e) {
-    const lv_event_code_t code = lv_event_get_code(e);
-    lv_indev_t *indev = lv_indev_active();
-    if (indev == nullptr) return;
+struct WeatherUi {
+    lv_obj_t *message;  // shown until the first successful download
+    lv_obj_t *content;
+    lv_obj_t *icon;
+    lv_obj_t *temp;
+    lv_obj_t *desc;
+    lv_obj_t *feels;
+    lv_obj_t *updated;
+    lv_obj_t *windIcon;
+    lv_obj_t *wind;
+    lv_obj_t *gust;
+    lv_obj_t *stats;
+    lv_obj_t *moonIcon;
+    lv_obj_t *moon;
+    lv_obj_t *sun;
+    lv_obj_t *days;
+    bool valid;
+} s_wx;
 
-    lv_point_t p;
-    lv_indev_get_point(indev, &p);  // screen coordinates
-    lv_area_t a;
-    lv_obj_get_coords(s_tt.pad, &a);
-    const int32_t lx = p.x - a.x1;
-    const int32_t ly = p.y - a.y1;
-
-    if (code == LV_EVENT_PRESSED) s_tt.touches++;
-
-    lv_obj_remove_flag(s_tt.hline, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_remove_flag(s_tt.vline, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_remove_flag(s_tt.dot, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_set_y(s_tt.hline, ly);
-    lv_obj_set_x(s_tt.vline, lx);
-    lv_obj_set_pos(s_tt.dot, lx - 12, ly - 12);
-
-    int best = 0;
-    int32_t bestD = INT32_MAX;
-    for (int i = 0; i < 5; ++i) {
-        const int32_t dx = lx - s_tt.targets[i].x, dy = ly - s_tt.targets[i].y;
-        const int32_t d = dx * dx + dy * dy;
-        if (d < bestD) { bestD = d; best = i; }
-    }
-    lv_label_set_text_fmt(s_tt.readout, "x=%d  y=%d   nearest target off by dx=%+d dy=%+d   touches=%u",
-                          (int)p.x, (int)p.y, (int)(lx - s_tt.targets[best].x),
-                          (int)(ly - s_tt.targets[best].y), (unsigned)s_tt.touches);
+lv_obj_t *makeBox(lv_obj_t *parent, lv_flex_flow_t flow) {
+    lv_obj_t *o = lv_obj_create(parent);
+    lv_obj_set_style_bg_opa(o, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(o, 0, 0);
+    lv_obj_set_style_pad_all(o, 0, 0);
+    lv_obj_set_style_radius(o, 0, 0);
+    lv_obj_set_flex_flow(o, flow);
+    lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(o, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    return o;
 }
 
-void buildTouchTab(lv_obj_t *tab) {
-    lv_obj_set_style_pad_all(tab, 0, 0);
+String fmtTemp(float t, bool unit, bool metric) {
+    long v = lroundf(t);
+    String s = String(v) + "\xC2\xB0";
+    if (unit) s += metric ? "C" : "F";
+    return s;
+}
+
+String fmtClock(time_t t) {
+    struct tm tm;
+    localtime_r(&t, &tm);
+    char buf[8];
+    strftime(buf, sizeof buf, "%H:%M", &tm);
+    return buf;
+}
+
+String fmtPrecip(float v, bool metric) {
+    char buf[16];
+    if (metric) snprintf(buf, sizeof buf, v < 10 ? "%.1f mm" : "%.0f mm", v);
+    else snprintf(buf, sizeof buf, "%.2f in", v);
+    return buf;
+}
+
+void buildWeatherTab(lv_obj_t *tab) {
+    lv_obj_set_style_pad_all(tab, 12, 0);
     lv_obj_remove_flag(tab, LV_OBJ_FLAG_SCROLLABLE);
 
-    s_tt.pad = lv_obj_create(tab);
-    lv_obj_set_size(s_tt.pad, LV_PCT(100), LV_PCT(100));
-    lv_obj_set_style_bg_color(s_tt.pad, lv_color_hex(0x0A0E14), 0);
-    lv_obj_set_style_border_width(s_tt.pad, 0, 0);
-    lv_obj_set_style_radius(s_tt.pad, 0, 0);
-    lv_obj_set_style_pad_all(s_tt.pad, 0, 0);
-    lv_obj_remove_flag(s_tt.pad, LV_OBJ_FLAG_SCROLLABLE);
-    // Don't hand drags to the tabview, otherwise drawing here would swipe tabs.
-    lv_obj_remove_flag(s_tt.pad, LV_OBJ_FLAG_SCROLL_CHAIN_HOR);
-    lv_obj_remove_flag(s_tt.pad, LV_OBJ_FLAG_SCROLL_CHAIN_VER);
-    lv_obj_add_event_cb(s_tt.pad, onTouchPad, LV_EVENT_PRESSED, nullptr);
-    lv_obj_add_event_cb(s_tt.pad, onTouchPad, LV_EVENT_PRESSING, nullptr);
+    s_wx.message = makeWrappedLabel(tab, "Waiting for weather...", &lv_font_montserrat_24, kMutedColor);
+    lv_obj_set_width(s_wx.message, LV_PCT(80));
+    lv_obj_set_style_text_align(s_wx.message, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_center(s_wx.message);
 
-    // Alignment targets: 4 corners (inset 40 px) + centre, in pad-local coords.
-    lv_obj_update_layout(s_tt.pad);
-    const int32_t w = lv_obj_get_width(s_tt.pad), h = lv_obj_get_height(s_tt.pad);
-    const lv_point_t local[5] = {{40, 40}, {w - 40, 40}, {40, h - 40}, {w - 40, h - 40}, {w / 2, h / 2}};
-    for (int i = 0; i < 5; ++i) {
-        lv_obj_t *t = lv_obj_create(s_tt.pad);
-        lv_obj_set_size(t, 30, 30);
-        lv_obj_set_style_radius(t, LV_RADIUS_CIRCLE, 0);
-        lv_obj_set_style_bg_opa(t, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_border_color(t, lv_color_hex(kAccentColor), 0);
-        lv_obj_set_style_border_width(t, 2, 0);
-        lv_obj_remove_flag(t, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_set_pos(t, local[i].x - 15, local[i].y - 15);
-        s_tt.targets[i] = local[i];
-    }
+    s_wx.content = makeBox(tab, LV_FLEX_FLOW_ROW);
+    lv_obj_set_size(s_wx.content, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_style_pad_column(s_wx.content, 12, 0);
+    lv_obj_add_flag(s_wx.content, LV_OBJ_FLAG_HIDDEN);
 
-    s_tt.hline = lv_obj_create(s_tt.pad);
-    lv_obj_set_size(s_tt.hline, LV_PCT(100), 1);
-    s_tt.vline = lv_obj_create(s_tt.pad);
-    lv_obj_set_size(s_tt.vline, 1, LV_PCT(100));
-    for (lv_obj_t *o : {s_tt.hline, s_tt.vline}) {
-        lv_obj_set_style_bg_color(o, lv_color_hex(0x00FF88), 0);
-        lv_obj_set_style_border_width(o, 0, 0);
-        lv_obj_set_style_radius(o, 0, 0);
-        lv_obj_remove_flag(o, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
-    }
-    s_tt.dot = lv_obj_create(s_tt.pad);
-    lv_obj_set_size(s_tt.dot, 24, 24);
-    lv_obj_set_style_radius(s_tt.dot, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(s_tt.dot, lv_color_hex(0xFF3366), 0);
-    lv_obj_set_style_border_width(s_tt.dot, 0, 0);
-    lv_obj_remove_flag(s_tt.dot, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_flag(s_tt.dot, LV_OBJ_FLAG_HIDDEN);
+    // ---- current conditions card
+    lv_obj_t *now = makePanel(s_wx.content);
+    lv_obj_set_size(now, 340, LV_PCT(100));
+    lv_obj_set_style_pad_row(now, 10, 0);
 
-    s_tt.readout = makeLabel(s_tt.pad, "Touch anywhere. Tap the circles to check alignment.", &lv_font_montserrat_20);
-    lv_obj_align(s_tt.readout, LV_ALIGN_TOP_MID, 0, 8);
+    lv_obj_t *top = makeBox(now, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(top, 10, 0);
+    s_wx.icon = lv_image_create(top);
+    lv_obj_t *col = makeBox(top, LV_FLEX_FLOW_COLUMN);
+    s_wx.temp = makeLabel(col, "", &lv_font_montserrat_40);
+    s_wx.desc = makeLabel(col, "", &lv_font_montserrat_20, kAccentColor);
+    s_wx.feels = makeLabel(col, "", &lv_font_montserrat_14, kBodyColor);
+    s_wx.updated = makeLabel(col, "", &lv_font_montserrat_14, kMutedColor);
+
+    lv_obj_t *windRow = makeBox(now, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(windRow, 10, 0);
+    lv_obj_set_flex_align(windRow, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    s_wx.windIcon = lv_image_create(windRow);
+    lv_obj_t *windCol = makeBox(windRow, LV_FLEX_FLOW_COLUMN);
+    s_wx.wind = makeLabel(windCol, "", &lv_font_montserrat_20);
+    s_wx.gust = makeLabel(windCol, "", &lv_font_montserrat_14, kBodyColor);
+
+    s_wx.stats = makeLabel(now, "", &lv_font_montserrat_14, kBodyColor);
+    lv_obj_set_style_text_line_space(s_wx.stats, 4, 0);
+
+    lv_obj_t *skyRow = makeBox(now, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(skyRow, 10, 0);
+    lv_obj_set_flex_align(skyRow, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    s_wx.moonIcon = lv_image_create(skyRow);
+    s_wx.moon = makeLabel(skyRow, "", &lv_font_montserrat_14, kBodyColor);
+    s_wx.sun = makeLabel(skyRow, "", &lv_font_montserrat_14, kBodyColor);
+    lv_obj_set_style_pad_left(s_wx.sun, 8, 0);
+
+    // ---- daily forecast card
+    s_wx.days = makePanel(s_wx.content);
+    lv_obj_set_height(s_wx.days, LV_PCT(100));
+    lv_obj_set_flex_grow(s_wx.days, 1);
+    lv_obj_set_style_pad_row(s_wx.days, 4, 0);
+    lv_obj_set_style_pad_ver(s_wx.days, 6, 0);
+}
+
+void addDayRow(const weather::Day &d, bool metric) {
+    lv_obj_t *row = makeBox(s_wx.days, LV_FLEX_FLOW_ROW);
+    lv_obj_set_width(row, LV_PCT(100));
+    lv_obj_set_flex_grow(row, 1);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(row, 8, 0);
+
+    lv_obj_t *label = makeLabel(row, d.label.c_str(), &lv_font_montserrat_20);
+    lv_obj_set_width(label, 66);
+    lv_obj_t *icon = lv_image_create(row);
+    lv_image_set_src(icon, weather::smallIcon(d.conditionId));
+    lv_obj_t *hi = makeLabel(row, fmtTemp(d.tempMax, false, metric).c_str(), &lv_font_montserrat_20);
+    lv_obj_set_width(hi, 48);
+    lv_obj_set_style_text_align(hi, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_t *lo = makeLabel(row, fmtTemp(d.tempMin, false, metric).c_str(), &lv_font_montserrat_20, kLowTempColor);
+    lv_obj_set_width(lo, 48);
+    lv_obj_set_style_text_align(lo, LV_TEXT_ALIGN_RIGHT, 0);
+
+    String detail = d.description;
+    String precip;
+    if (d.snow >= 0.1f) precip += "Snow " + fmtPrecip(d.snow, metric);
+    if (d.rain >= 0.1f) precip += (precip.length() ? "  Rain " : "Rain ") + fmtPrecip(d.rain, metric);
+    if (d.pop > 0) precip += (precip.length() ? "  (" : "(") + String(d.pop) + "%)";
+    if (precip.length()) detail += "\n" + precip;
+    lv_obj_t *det = makeLabel(row, detail.c_str(), &lv_font_montserrat_14, kBodyColor);
+    lv_obj_set_flex_grow(det, 1);
+    lv_obj_set_style_pad_left(det, 8, 0);
+    lv_label_set_long_mode(det, LV_LABEL_LONG_DOT);
 }
 
 }  // namespace
@@ -323,7 +365,7 @@ void build(const forecast::Forecast &fc) {
     s_problemsTab = lv_tabview_add_tab(tv, "Problems");
     s_conditionsTab = lv_tabview_add_tab(tv, "Conditions");
     s_detailsTab = lv_tabview_add_tab(tv, "Details");
-    lv_obj_t *touchTab = lv_tabview_add_tab(tv, "Touch");
+    lv_obj_t *weatherTab = lv_tabview_add_tab(tv, "Weather");
 
     const uint32_t n = lv_obj_get_child_count(bar);
     for (uint32_t i = 0; i < n; ++i) {
@@ -333,7 +375,7 @@ void build(const forecast::Forecast &fc) {
         lv_obj_set_style_border_color(btn, lv_color_hex(kAccentColor), LV_STATE_CHECKED);
     }
 
-    buildTouchTab(touchTab);
+    buildWeatherTab(weatherTab);
     showForecast(fc);
 }
 
@@ -354,6 +396,50 @@ void setStatus(const char *text, StatusLevel level) {
     if (level == StatusLevel::Error) color = 0xF7941E;
     lv_obj_set_style_text_color(s_statusLabel, lv_color_hex(color), 0);
     lv_label_set_text(s_statusLabel, text);
+}
+
+void showWeather(const weather::Weather &w) {
+    const auto &c = w.now;
+    const time_t now = time(nullptr);
+    const bool night = c.sunrise && c.sunset && (now < c.sunrise || now > c.sunset);
+    const bool m = w.metric;
+    const char *speed = m ? "km/h" : "mph";
+
+    lv_image_set_src(s_wx.icon, weather::largeIcon(c.conditionId, night));
+    lv_label_set_text(s_wx.temp, fmtTemp(c.temp, true, m).c_str());
+    lv_label_set_text(s_wx.desc, c.description.c_str());
+    lv_label_set_text(s_wx.feels, ("Feels like " + fmtTemp(c.feelsLike, false, m)).c_str());
+    lv_label_set_text(s_wx.updated, ("Updated " + fmtClock(w.fetched)).c_str());
+    lv_obj_set_style_text_color(s_wx.updated, lv_color_hex(kMutedColor), 0);
+
+    lv_image_set_src(s_wx.windIcon, weather::windIcon(c.windDeg));
+    lv_label_set_text_fmt(s_wx.wind, "%ld %s %s", lroundf(c.windSpeed), speed, weather::windDirName(c.windDeg));
+    if (c.windGust > c.windSpeed) lv_label_set_text_fmt(s_wx.gust, "Gusts %ld %s", lroundf(c.windGust), speed);
+    else lv_label_set_text(s_wx.gust, "");
+
+    lv_label_set_text_fmt(s_wx.stats, "Humidity %d%%    Clouds %d%%\nPressure %d hPa    Visibility %.0f %s",
+                          c.humidity, c.clouds, c.pressure, c.visibility, m ? "km" : "mi");
+
+    lv_image_set_src(s_wx.moonIcon, weather::moonIcon(now));
+    lv_label_set_text_fmt(s_wx.moon, "%s\n%d%% lit", weather::moonPhaseName(now), weather::moonIllumination(now));
+    lv_label_set_text(s_wx.sun, ("Sunrise " + fmtClock(c.sunrise) + "\nSunset  " + fmtClock(c.sunset)).c_str());
+
+    lv_obj_clean(s_wx.days);
+    for (const auto &d : w.days) addDayRow(d, m);
+
+    s_wx.valid = true;
+    lv_obj_add_flag(s_wx.message, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(s_wx.content, LV_OBJ_FLAG_HIDDEN);
+}
+
+void setWeatherError(const char *text) {
+    if (s_wx.valid) {
+        // Keep showing the last good data; flag the problem in the "Updated" line.
+        lv_label_set_text(s_wx.updated, text);
+        lv_obj_set_style_text_color(s_wx.updated, lv_color_hex(0xF7941E), 0);
+    } else {
+        lv_label_set_text(s_wx.message, text);
+    }
 }
 
 }  // namespace ui

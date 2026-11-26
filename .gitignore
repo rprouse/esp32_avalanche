@@ -4,3 +4,5 @@
 .vscode/launch.json
 .vscode/ipch
 include/config.h
+src/weather/weather_icons.c
+src/weather/weather_icons.h

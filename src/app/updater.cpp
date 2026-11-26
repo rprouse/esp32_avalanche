@@ -8,6 +8,7 @@
 #include "display/display_port.h"
 #include "forecast/forecast_client.h"
 #include "ui/ui.h"
+#include "weather/weather.h"
 
 namespace updater {
 namespace {
@@ -41,6 +42,13 @@ bool ensureWifi() {
 }
 
 bool ensureTime() {
+    // Start SNTP only once Wi-Fi is up; started earlier, its first request fails
+    // and the retry comes much later (~30 s). SNTP keeps the clock synced after this.
+    static bool sntpStarted = false;
+    if (!sntpStarted) {
+        configTzTime(TIME_ZONE, NTP_SERVER_1, NTP_SERVER_2);
+        sntpStarted = true;
+    }
     if (time(nullptr) > kValidTime) return true;
     status("Setting clock...", ui::StatusLevel::Info);
     const uint32_t start = millis();
@@ -74,61 +82,100 @@ String hhmm(time_t t) {
     return buf;
 }
 
-void task(void *) {
-    // Starts SNTP in the background; it keeps the clock synced from then on.
-    configTzTime(TIME_ZONE, NTP_SERVER_1, NTP_SERVER_2);
+// ------------------------------------------------------------------ avalanche forecast
 
+struct AvalancheState {
+    time_t next = 0;  // 0 = due now
     time_t shownIssued = 0;
     bool haveForecast = false;
-    bool dailyCheck = false;  // true when the current fetch is a scheduled daily check
+    bool dailyCheck = false;  // the pending fetch is a scheduled daily check
     int rechecks = 0;
+} s_av;
+
+void updateAvalanche(time_t now) {
+    status("Downloading forecast...", ui::StatusLevel::Info);
+    forecast::Forecast fc;
+    fc.region = FORECAST_NAME;
+    String error;
+    if (!forecast::fetch(FORECAST_LATITUDE, FORECAST_LONGITUDE, FORECAST_LANGUAGE, fc, error)) {
+        log_w("Forecast download failed: %s", error.c_str());
+        status((s_av.haveForecast ? "Update failed: " : "Download failed: ") + error, ui::StatusLevel::Error);
+        s_av.next = now + FORECAST_RETRY_MINUTES * 60;
+        return;
+    }
+    const bool changed = fc.issuedUtc != s_av.shownIssued;
+    if (changed) {
+        s_av.shownIssued = fc.issuedUtc;
+        s_av.haveForecast = true;
+        display::Lock lock;
+        ui::showForecast(fc);
+    }
+    if (s_av.dailyCheck && !changed && s_av.rechecks < FORECAST_RECHECK_MAX) {
+        // Today's forecast isn't out yet; look again soon.
+        ++s_av.rechecks;
+        s_av.next = now + FORECAST_RECHECK_MINUTES * 60;
+    } else {
+        s_av.rechecks = 0;
+        s_av.dailyCheck = true;
+        s_av.next = nextDailyCheck(now);
+    }
+    status("Checked " + hhmm(now) + ", next check " + hhmm(s_av.next), ui::StatusLevel::Ok);
+    log_i("Forecast %s (issued %s). Free heap %u, PSRAM %u", changed ? "updated" : "unchanged", fc.issued.c_str(),
+          (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getFreePsram());
+}
+
+// ------------------------------------------------------------------ weather
+
+constexpr bool kWeatherEnabled = sizeof(OPENWEATHER_API_KEY) > 1;  // non-empty string literal
+time_t s_weatherNext = 0;
+
+void updateWeather(time_t now) {
+    weather::Weather w;
+    String error;
+    if (!weather::fetch(WEATHER_LATITUDE, WEATHER_LONGITUDE, OPENWEATHER_API_KEY, WEATHER_UNITS_METRIC,
+                        FORECAST_LANGUAGE, w, error)) {
+        log_w("Weather download failed: %s", error.c_str());
+        display::Lock lock;
+        ui::setWeatherError(("Weather update failed: " + error).c_str());
+        s_weatherNext = now + FORECAST_RETRY_MINUTES * 60;
+        return;
+    }
+    {
+        display::Lock lock;
+        ui::showWeather(w);
+    }
+    s_weatherNext = now + WEATHER_REFRESH_MINUTES * 60;
+    log_i("Weather updated: %.1f, %s. Free heap %u", w.now.temp, w.now.description.c_str(),
+          (unsigned)ESP.getFreeHeap());
+}
+
+void task(void *) {
+    // Apply the time zone now so anything formatted before NTP sync is local.
+    setenv("TZ", TIME_ZONE, 1);
+    tzset();
+
+    if (!kWeatherEnabled) {
+        display::Lock lock;
+        ui::setWeatherError("Add OPENWEATHER_API_KEY to include/config.h to show the weather.");
+    }
 
     for (;;) {
-        uint32_t waitMs = FORECAST_RETRY_MINUTES * 60UL * 1000UL;
-        time_t next = 0;
-
         if (!ensureWifi()) {
             status("Wi-Fi connection failed - retrying", ui::StatusLevel::Error);
-        } else if (!ensureTime()) {
+            delay(FORECAST_RETRY_MINUTES * 60UL * 1000UL);
+            continue;
+        }
+        if (!ensureTime()) {
             status("Clock sync failed - retrying", ui::StatusLevel::Error);
-        } else {
-            status("Downloading forecast...", ui::StatusLevel::Info);
-            forecast::Forecast fc;
-            fc.region = FORECAST_NAME;
-            String error;
-            if (!forecast::fetch(FORECAST_LATITUDE, FORECAST_LONGITUDE, FORECAST_LANGUAGE, fc, error)) {
-                log_w("Forecast download failed: %s", error.c_str());
-                status((haveForecast ? "Update failed: " : "Download failed: ") + error, ui::StatusLevel::Error);
-            } else {
-                const time_t now = time(nullptr);
-                const bool changed = fc.issuedUtc != shownIssued;
-                if (changed) {
-                    shownIssued = fc.issuedUtc;
-                    haveForecast = true;
-                    display::Lock lock;
-                    ui::showForecast(fc);
-                }
-                if (dailyCheck && !changed && rechecks < FORECAST_RECHECK_MAX) {
-                    // Today's forecast isn't out yet; look again soon.
-                    ++rechecks;
-                    next = now + FORECAST_RECHECK_MINUTES * 60;
-                } else {
-                    rechecks = 0;
-                    dailyCheck = true;
-                    next = nextDailyCheck(now);
-                }
-                status("Checked " + hhmm(now) + ", next check " + hhmm(next), ui::StatusLevel::Ok);
-                log_i("Forecast %s (issued %s). Free heap %u, PSRAM %u", changed ? "updated" : "unchanged",
-                      fc.issued.c_str(), (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getFreePsram());
-            }
+            delay(FORECAST_RETRY_MINUTES * 60UL * 1000UL);
+            continue;
         }
 
-        // Sleep until the next check (by wall clock when we have one).
-        if (next != 0) {
-            while (time(nullptr) < next) delay(1000);
-        } else {
-            delay(waitMs);
-        }
+        const time_t now = time(nullptr);
+        if (now >= s_av.next) updateAvalanche(now);
+        if (kWeatherEnabled && now >= s_weatherNext) updateWeather(time(nullptr));
+
+        delay(1000);
     }
 }
 

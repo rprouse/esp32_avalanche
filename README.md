@@ -17,7 +17,9 @@ built with PlatformIO (pioarduino), Arduino-ESP32 3.3 and LVGL 9.
   and once a day (default 17:30 local), re-checking until the new forecast is published.
 - Tabs (swipe or tap): **Danger** (3-day ratings by elevation band), **Problems**, **Conditions**
   (avalanche, snowpack and weather summaries), **Details** (highlights, travel advice, confidence),
-  **Touch** (touch alignment test).
+  **Weather** (current conditions, wind, sun and moon, 5-day forecast with snow and rain).
+- The Weather tab needs a free [OpenWeatherMap](https://openweathermap.org/api) API key in `config.h`
+  (`OPENWEATHER_API_KEY`); without one the tab explains how to enable it.
 - The header shows when the forecast was issued and the download status.
 
 See [AGENTS.md](AGENTS.md) for hardware details, architecture, pitfalls and the roadmap.
@@ -44,7 +46,13 @@ Then:
 - **Serial output** stays on the UART1 port. To move `Serial` to USB, set `-DARDUINO_USB_CDC_ON_BOOT=1`
   in `platformio.ini` and erase the flash once (`pio run -t erase`).
 
+## Credits
+
+The Weather tab is adapted from the CYD weather station sketch by Daniel Eichhorn (squix) and Bodmer's
+[OpenWeather](https://github.com/Bodmer/OpenWeather) library. The weather, moon and wind icons are Bodmer's,
+used under the FreeBSD license (see [assets/weather-icons](assets/weather-icons)).
+
 ## License
 
-MIT. See [LICENSE](LICENSE). `include/esp_panel_board_custom_conf.h` is derived from Espressif/Waveshare
+MIT. See [LICENSE](LICENSE). The weather icons keep their own FreeBSD license. `include/esp_panel_board_custom_conf.h` is derived from Espressif/Waveshare
 sample code and remains under the Apache License 2.0, as stated in its header.
