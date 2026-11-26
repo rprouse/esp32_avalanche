@@ -38,3 +38,8 @@ Then:
   Until that firmware is on the board, put it in download mode by hand: hold BOOT, tap RESET, release BOOT.
 - **Serial output** stays on the UART1 port. To move `Serial` to USB, set `-DARDUINO_USB_CDC_ON_BOOT=1`
   in `platformio.ini` and erase the flash once (`pio run -t erase`).
+
+## License
+
+MIT. See [LICENSE](LICENSE). `include/esp_panel_board_custom_conf.h` is derived from Espressif/Waveshare
+sample code and remains under the Apache License 2.0, as stated in its header.
