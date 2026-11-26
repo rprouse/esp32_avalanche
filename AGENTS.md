@@ -284,5 +284,7 @@ include/
 
 ## Roadmap / next steps
 
-1. Optional: on-device Wi-Fi setup (captive portal) instead of `config.h`.
-2. Optional: screen off at night (backlight via EXIO2) and/or touch to wake.
+Planned work is tracked in GitHub issues: https://github.com/rprouse/esp32_avalanche/issues
+(`gh issue list`). Each issue includes context and pointers into the code. Keep ideas
+there rather than in this file. Highest priority: #1 (stale forecast warning) and #2
+(screen off at night).
