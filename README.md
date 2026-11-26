@@ -18,7 +18,7 @@ built with PlatformIO (pioarduino), Arduino-ESP32 3.3 and LVGL 9.
 - Tabs (swipe or tap):
   - **Weather** (shown first): current conditions, wind, sun and moon, and a 5-day forecast with snow and rain
   - **Danger**: 3-day ratings by elevation band
-  - **Problems**: avalanche problems
+  - **Problems**: avalanche problems with an aspect/elevation rose and likelihood and size scales
   - **Conditions**: avalanche, snowpack and weather summaries
   - **Details**: highlights, travel advice and confidence
 - The Weather tab needs a free [OpenWeatherMap](https://openweathermap.org/api) API key in `config.h`

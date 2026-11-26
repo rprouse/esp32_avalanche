@@ -195,6 +195,13 @@ include/
 - The refresh button calls `updater::requestRefresh()`, which wakes the updater task to fetch both sources now without
   changing the daily avalanche schedule; the button is disabled while it runs.
 - The avalanche issued time and download status (`ui::setStatus`) are in the Danger tab footer.
+- Problems tab graphics (`src/ui/problem_graphics.*`) are drawn natively with LVGL draw callbacks
+  rather than using Avalanche Canada's PNGs, which are designed for white backgrounds (their dark
+  labels vanish on the navy theme). They are:
+  - an aspect/elevation rose (8 aspects x 3 rings: centre alpine, outer below treeline) built
+    from `data.aspectElevations` (e.g. `nw_alp`) into `Problem::aspectMask`
+  - 5-step likelihood and size scales (`likelihoodMin/Max`, `sizeMin/Max`, half steps allowed)
+  Drawing parameters are packed into the object's `user_data` pointer, so there's nothing to free.
   The Weather tab shows its own "Updated" time.
 - Fonts enabled: Montserrat 14/20/24/28/40 (default 20). Enable more in `lv_conf.h`.
 - Danger colours follow the North American Public Avalanche Danger Scale (see

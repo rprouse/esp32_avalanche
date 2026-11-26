@@ -22,27 +22,48 @@ Danger parseDanger(const char *v) {
     return Danger::NoRating;  // "norating", "early_season", "spring", ...
 }
 
-String formatLikelihood(const char *v) {
-    struct Map { const char *key, *text; };
+// Likelihood: text plus range on the 1 (unlikely) .. 5 (almost certain) scale.
+void parseLikelihood(const char *v, Problem &p) {
+    struct Map { const char *key, *text; float lo, hi; };
     static const Map kMap[] = {
-        {"unlikely", "Unlikely"},
-        {"possible_unlikely", "Unlikely to possible"},
-        {"possible", "Possible"},
-        {"likely_possible", "Possible to likely"},
-        {"likely", "Likely"},
-        {"very_likely_likely", "Likely to very likely"},
-        {"very_likely", "Very likely"},
-        {"almost_certain_very_likely", "Very likely to almost certain"},
-        {"almost_certain", "Almost certain"},
+        {"unlikely", "Unlikely", 1, 1},
+        {"possible_unlikely", "Unlikely to possible", 1, 2},
+        {"possible", "Possible", 2, 2},
+        {"likely_possible", "Possible to likely", 2, 3},
+        {"likely", "Likely", 3, 3},
+        {"very_likely_likely", "Likely to very likely", 3, 4},
+        {"very_likely", "Very likely", 4, 4},
+        {"almost_certain_very_likely", "Very likely to almost certain", 4, 5},
+        {"almost_certain", "Almost certain", 5, 5},
     };
-    if (v == nullptr) return "";
+    if (v == nullptr) return;
     for (const auto &m : kMap) {
-        if (!strcmp(v, m.key)) return m.text;
+        if (!strcmp(v, m.key)) {
+            p.likelihood = m.text;
+            p.likelihoodMin = m.lo;
+            p.likelihoodMax = m.hi;
+            return;
+        }
     }
     String s(v);
     s.replace('_', ' ');
     if (s.length()) s.setCharAt(0, toupper(s[0]));
-    return s;
+    p.likelihood = s;
+}
+
+int aspectIndex(const String &a) {
+    static const char *const kNames[kAspects] = {"n", "ne", "e", "se", "s", "sw", "w", "nw"};
+    for (int i = 0; i < kAspects; ++i) {
+        if (a == kNames[i]) return i;
+    }
+    return -1;
+}
+
+int bandIndex(const String &b) {
+    if (b == "alp") return kAlpine;
+    if (b == "tln") return kTreeline;
+    if (b == "btl") return kBelowTreeline;
+    return -1;
 }
 
 double jsonNumber(JsonVariantConst v) {
@@ -196,6 +217,8 @@ bool parse(const String &json, Forecast &out, String &error) {
     pr["comment"] = true;
     pr["data"]["elevations"][0]["display"] = true;
     pr["data"]["aspects"][0]["value"] = true;
+    pr["data"]["elevations"][0]["value"] = true;
+    pr["data"]["aspectElevations"] = true;
     pr["data"]["likelihood"]["value"] = true;
     pr["data"]["expectedSize"] = true;
 
@@ -267,8 +290,32 @@ bool parse(const String &json, Forecast &out, String &error) {
                 prob.aspects += v;
             }
         }
-        prob.likelihood = formatLikelihood(data["likelihood"]["value"]);
+        parseLikelihood(data["likelihood"]["value"], prob);
         prob.size = formatSize(data["expectedSize"]);
+        prob.sizeMin = jsonNumber(data["expectedSize"]["min"]);
+        prob.sizeMax = jsonNumber(data["expectedSize"]["max"]);
+        if (prob.sizeMin <= 0) prob.sizeMin = prob.sizeMax;
+
+        // Affected aspect/elevation cells, e.g. "nw_alp". Fall back to every
+        // combination of the listed aspects and elevations if absent.
+        for (JsonVariantConst ae : data["aspectElevations"].as<JsonArrayConst>()) {
+            const String s = ae.as<const char *>() ? ae.as<const char *>() : "";
+            const int sep = s.indexOf('_');
+            const int a = aspectIndex(s.substring(0, sep));
+            const int b = bandIndex(s.substring(sep + 1));
+            if (sep > 0 && a >= 0 && b >= 0) prob.aspectMask[b] |= 1 << a;
+        }
+        if (!prob.aspectMask[0] && !prob.aspectMask[1] && !prob.aspectMask[2]) {
+            uint8_t aspectBits = 0;
+            for (JsonObjectConst a : aspects) {
+                const int i = aspectIndex(a["value"] | "");
+                if (i >= 0) aspectBits |= 1 << i;
+            }
+            for (JsonObjectConst e : data["elevations"].as<JsonArrayConst>()) {
+                const int b = bandIndex(e["value"] | "");
+                if (b >= 0) prob.aspectMask[b] = aspectBits;
+            }
+        }
         out.problems.push_back(prob);
     }
 

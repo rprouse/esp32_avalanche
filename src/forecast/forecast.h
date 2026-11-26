@@ -21,6 +21,10 @@ struct DayRating {
     Danger belowTreeline = Danger::NoRating;
 };
 
+// Elevation bands and aspects, used to index Problem::aspectMask.
+enum Band : uint8_t { kAlpine = 0, kTreeline = 1, kBelowTreeline = 2, kBands = 3 };
+constexpr int kAspects = 8;  // N, NE, E, SE, S, SW, W, NW (bit 0 = N, clockwise)
+
 struct Problem {
     String type;        // e.g. "Wind Slab"
     String elevations;  // e.g. "Alpine, Treeline"
@@ -28,6 +32,12 @@ struct Problem {
     String likelihood;  // e.g. "Possible to likely"
     String size;        // e.g. "1 - 2"
     String comment;
+
+    // For the graphics: which aspect/elevation combinations are affected
+    // (aspectMask[band] bit i = aspect i), and likelihood/size ranges on 1..5.
+    uint8_t aspectMask[kBands] = {0, 0, 0};
+    float likelihoodMin = 0, likelihoodMax = 0;  // 1 unlikely .. 5 almost certain
+    float sizeMin = 0, sizeMax = 0;              // destructive size 1 .. 5 (half sizes allowed)
 };
 
 struct Forecast {

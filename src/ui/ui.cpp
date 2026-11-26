@@ -6,6 +6,7 @@
 
 #include "display/display_port.h"
 #include "ui/logo_icon.h"
+#include "ui/problem_graphics.h"
 #include "weather/weather.h"
 
 using forecast::Danger;
@@ -152,6 +153,8 @@ void buildDangerSkeleton() {
 
 // ---------------------------------------------------------------- Problems tab
 
+lv_obj_t *makeBox(lv_obj_t *parent, lv_flex_flow_t flow);
+
 void buildProblemsTab(const forecast::Forecast &fc) {
     prepareScrollTab(s_problemsTab);
 
@@ -159,12 +162,39 @@ void buildProblemsTab(const forecast::Forecast &fc) {
         makeLabel(s_problemsTab, fc.valid ? "No avalanche problems listed." : "", &lv_font_montserrat_24);
         return;
     }
+
+    static const char *const kLikelihoodLabels[5] = {"Unlikely", "", "", "", "Almost certain"};
+    static const char *const kSizeLabels[5] = {"1 Small", "2", "3", "4", "5 Very large"};
+    constexpr int32_t kRoseSize = 170;
+    constexpr int32_t kScaleWidth = 340;
+
     for (const auto &p : fc.problems) {
         lv_obj_t *card = makePanel(s_problemsTab);
+        lv_obj_set_style_pad_row(card, 10, 0);
         makeLabel(card, p.type.c_str(), &lv_font_montserrat_28, kAccentColor);
-        String facts = "Elevation: " + p.elevations + "\nAspects: " + p.aspects + "\nLikelihood: " + p.likelihood +
-                       "\nExpected size: " + p.size;
-        makeLabel(card, facts.c_str(), &lv_font_montserrat_20);
+
+        // Aspect/elevation rose (left), facts and likelihood/size scales (right)
+        lv_obj_t *body = makeBox(card, LV_FLEX_FLOW_ROW);
+        lv_obj_set_width(body, LV_PCT(100));
+        lv_obj_set_style_pad_column(body, 28, 0);
+
+        lv_obj_t *roseCol = makeBox(body, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(roseCol, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_row(roseCol, 4, 0);
+        createAspectRose(roseCol, p.aspectMask, kRoseSize);
+        makeLabel(roseCol, "Centre: Alpine\nOuter: Below treeline", &lv_font_montserrat_14, kMutedColor);
+
+        lv_obj_t *info = makeBox(body, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_grow(info, 1);
+        lv_obj_set_style_pad_row(info, 6, 0);
+        makeLabel(info, ("Elevation: " + p.elevations + "\nAspects: " + p.aspects).c_str(), &lv_font_montserrat_20);
+        lv_obj_t *likely = makeLabel(info, ("Likelihood: " + p.likelihood).c_str(), &lv_font_montserrat_20);
+        lv_obj_set_style_pad_top(likely, 8, 0);
+        createRangeScale(info, p.likelihoodMin, p.likelihoodMax, kScaleWidth, kLikelihoodLabels);
+        lv_obj_t *size = makeLabel(info, ("Expected size: " + p.size).c_str(), &lv_font_montserrat_20);
+        lv_obj_set_style_pad_top(size, 8, 0);
+        createRangeScale(info, p.sizeMin, p.sizeMax, kScaleWidth, kSizeLabels);
+
         makeWrappedLabel(card, p.comment.c_str(), &lv_font_montserrat_20, kBodyColor);
     }
 }
