@@ -6,3 +6,5 @@
 include/config.h
 src/weather/weather_icons.c
 src/weather/weather_icons.h
+__pycache__/
+*.pyc
