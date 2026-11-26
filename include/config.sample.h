@@ -67,3 +67,11 @@
 // a different point (e.g. a ski hill instead of town).
 // #define WEATHER_LATITUDE      49.4627
 // #define WEATHER_LONGITUDE     -115.0873
+
+// ----------------------------------------------------------------------------- Screen
+// Turn the screen (backlight) off overnight, local time. Touching the screen wakes
+// it for SCREEN_WAKE_MINUTES; that first touch doesn't press anything. Set
+// SCREEN_OFF_HOUR equal to SCREEN_ON_HOUR to keep the screen on all the time.
+#define SCREEN_OFF_HOUR      23
+#define SCREEN_ON_HOUR       6
+#define SCREEN_WAKE_MINUTES  5

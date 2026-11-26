@@ -1,5 +1,6 @@
 #include <Arduino.h>
 
+#include "app/screen_schedule.h"
 #include "app/updater.h"
 #include "app_config.h"
 #include "display/display_port.h"
@@ -21,6 +22,7 @@ void setup() {
     {
         display::Lock lock;
         ui::build(forecast::placeholder(FORECAST_NAME));
+        screen_schedule::start();
     }
     Serial.println("UI ready");
 

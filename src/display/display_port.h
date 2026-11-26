@@ -45,6 +45,17 @@ private:
 
 void setBacklight(bool on);
 
+/**
+ * Screen power (backlight on/off; the panel keeps running). While the screen is
+ * off, the first touch turns it back on and is swallowed until the finger lifts,
+ * so it doesn't also press a button. Call from the LVGL task (e.g. an lv_timer):
+ * the backlight is on the same I2C bus as the touch controller.
+ */
+void setScreenOn(bool on);
+bool screenOn();
+/** millis() of the most recent touch (0 = none yet). */
+uint32_t lastTouchMs();
+
 lv_display_t *lvDisplay();
 lv_indev_t *lvTouch();
 esp_panel::board::Board *board();

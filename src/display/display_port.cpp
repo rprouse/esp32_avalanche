@@ -47,14 +47,24 @@ void flushCb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
     lv_display_flush_ready(disp);
 }
 
+bool s_screenOn = true;
+bool s_swallowTouch = false;  // the touch that woke the screen is not passed to the UI
+uint32_t s_lastTouchMs = 0;
+
 void touchReadCb(lv_indev_t *indev, lv_indev_data_t *data) {
     LV_UNUSED(indev);
     TouchPoint point;
     if (s_touch != nullptr && s_touch->readPoints(&point, 1, 0) > 0) {
+        s_lastTouchMs = millis();
+        if (!s_screenOn) {
+            setScreenOn(true);
+            s_swallowTouch = true;
+        }
         data->point.x = point.x;
         data->point.y = point.y;
-        data->state = LV_INDEV_STATE_PRESSED;
+        data->state = s_swallowTouch ? LV_INDEV_STATE_RELEASED : LV_INDEV_STATE_PRESSED;
     } else {
+        s_swallowTouch = false;
         data->state = LV_INDEV_STATE_RELEASED;
     }
 }
@@ -154,6 +164,16 @@ void setBacklight(bool on) {
         s_board->getBacklight()->off();
     }
 }
+
+void setScreenOn(bool on) {
+    if (on == s_screenOn) return;
+    s_screenOn = on;
+    setBacklight(on);
+    log_i("Screen %s", on ? "on" : "off");
+}
+
+bool screenOn() { return s_screenOn; }
+uint32_t lastTouchMs() { return s_lastTouchMs; }
 
 lv_display_t *lvDisplay() { return s_disp; }
 lv_indev_t *lvTouch() { return s_indev; }

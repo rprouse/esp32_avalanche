@@ -49,3 +49,14 @@
 #ifndef WEATHER_LONGITUDE
 #define WEATHER_LONGITUDE FORECAST_LONGITUDE
 #endif
+
+// Screen off overnight (equal hours = always on)
+#ifndef SCREEN_OFF_HOUR
+#define SCREEN_OFF_HOUR 23
+#endif
+#ifndef SCREEN_ON_HOUR
+#define SCREEN_ON_HOUR 6
+#endif
+#ifndef SCREEN_WAKE_MINUTES
+#define SCREEN_WAKE_MINUTES 5
+#endif

@@ -143,6 +143,7 @@ src/
   main.cpp                    setup(): display::begin() -> ui::build(placeholder) -> updater::start()
   app_config.h                includes include/config.h + defaults
   app/updater.*               Task on core 0: Wi-Fi, NTP, fetch schedule, retries, pushes to UI
+  app/screen_schedule.*       Backlight off overnight (lv_timer), touch to wake
   display/display_port.*      Board + LVGL glue: init, flush, touch read, LVGL task, mutex
   ui/ui.*                     All LVGL screens (header with refresh button, tabview)
   forecast/forecast.*         Forecast data model, danger-scale names/colours, placeholder
@@ -217,7 +218,13 @@ include/
   `custom_sdkconfig` to enable `CONFIG_SPIRAM_FETCH_INSTRUCTIONS` / `CONFIG_SPIRAM_RODATA`
   and `CONFIG_LCD_RGB_RESTART_IN_VSYNC` (this triggers a slow full IDF rebuild).
 - Changing `ARDUINO_USB_CDC_ON_BOOT` or partitions: do a full erase (`pio run -t erase`) first.
-- Backlight is on/off only (EXIO2); there is no brightness control.
+- Backlight is on/off only (EXIO2); there is no brightness control. `display::setScreenOn()` /
+  `screen_schedule` turn it off from `SCREEN_OFF_HOUR` to `SCREEN_ON_HOUR` (default 23 to 6). The
+  first touch on a dark screen wakes it for `SCREEN_WAKE_MINUTES` and is swallowed until release
+  (in `touchReadCb`). Backlight writes go over the same I2C bus as touch, so only call them from
+  the LVGL task. To test without waiting for night, build with
+  `$env:PLATFORMIO_BUILD_FLAGS='-DSCREEN_OFF_HOUR=<now> -DSCREEN_ON_HOUR=<now+1> -DSCREEN_WAKE_MINUTES=1'`
+  (works as long as config.h doesn't define them).
 - Don't use `Wire` on GPIO8/9 alongside the panel library without setting the board conf's
   `*_SKIP_INIT_HOST` options, or the I2C host gets initialised twice.
 - The SD card CS is on the expander (EXIO4), so the stock `SD` library's CS pin argument
@@ -293,5 +300,4 @@ include/
 
 Planned work is tracked in GitHub issues: https://github.com/rprouse/esp32_avalanche/issues
 (`gh issue list`). Each issue includes context and pointers into the code. Keep ideas
-there rather than in this file. Highest priority: #1 (stale forecast warning) and #2
-(screen off at night).
+there rather than in this file. Highest priority: #1 (stale forecast warning).

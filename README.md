@@ -25,6 +25,7 @@ built with PlatformIO (pioarduino), Arduino-ESP32 3.3 and LVGL 9.
   (`OPENWEATHER_API_KEY`); without one the tab explains how to enable it.
 - The last forecast and weather are saved to flash and shown immediately at power-on, even with no
   internet, until fresh data downloads.
+- The screen turns off overnight (default 23:00-06:00); touch it to wake it for a few minutes.
 - The refresh button in the header downloads both reports immediately. The Danger tab footer shows when
   the avalanche forecast was issued and last updated.
 
