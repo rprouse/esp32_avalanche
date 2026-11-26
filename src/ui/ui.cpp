@@ -1,5 +1,6 @@
 #include "ui.h"
 
+#include <climits>
 #include <lvgl.h>
 
 #include "display/display_port.h"
@@ -14,13 +15,15 @@ constexpr int32_t kTabBarH = 64;
 constexpr uint32_t kBgColor = 0x10161F;
 constexpr uint32_t kPanelColor = 0x1C2633;
 constexpr uint32_t kAccentColor = 0x4FA3E0;
-
-forecast::Forecast s_fc;
+constexpr uint32_t kMutedColor = 0x9AA8B8;
+constexpr uint32_t kBodyColor = 0xD8E0E8;
 
 lv_obj_t *s_regionLabel = nullptr;
 lv_obj_t *s_issuedLabel = nullptr;
+lv_obj_t *s_statusLabel = nullptr;
 lv_obj_t *s_dangerTab = nullptr;
 lv_obj_t *s_problemsTab = nullptr;
+lv_obj_t *s_conditionsTab = nullptr;
 lv_obj_t *s_detailsTab = nullptr;
 
 // ---------------------------------------------------------------- helpers
@@ -33,13 +36,40 @@ lv_obj_t *makeLabel(lv_obj_t *parent, const char *text, const lv_font_t *font, u
     return l;
 }
 
+lv_obj_t *makeWrappedLabel(lv_obj_t *parent, const char *text, const lv_font_t *font, uint32_t color) {
+    lv_obj_t *l = makeLabel(parent, text, font, color);
+    lv_obj_set_width(l, LV_PCT(100));
+    lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
+    return l;
+}
+
 lv_obj_t *makePanel(lv_obj_t *parent) {
     lv_obj_t *p = lv_obj_create(parent);
     lv_obj_set_style_bg_color(p, lv_color_hex(kPanelColor), 0);
     lv_obj_set_style_border_width(p, 0, 0);
     lv_obj_set_style_radius(p, 10, 0);
     lv_obj_set_style_pad_all(p, 12, 0);
+    lv_obj_set_size(p, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(p, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(p, 6, 0);
+    lv_obj_remove_flag(p, LV_OBJ_FLAG_SCROLLABLE);
     return p;
+}
+
+/** Card with a heading and wrapped body text. Skipped if body is empty. */
+void addTextCard(lv_obj_t *parent, const char *heading, const String &body) {
+    if (body.isEmpty()) return;
+    lv_obj_t *card = makePanel(parent);
+    makeLabel(card, heading, &lv_font_montserrat_24, kAccentColor);
+    makeWrappedLabel(card, body.c_str(), &lv_font_montserrat_20, kBodyColor);
+}
+
+void prepareScrollTab(lv_obj_t *tab) {
+    lv_obj_clean(tab);
+    lv_obj_set_flex_flow(tab, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(tab, 12, 0);
+    lv_obj_set_style_pad_row(tab, 12, 0);
+    lv_obj_scroll_to_y(tab, 0, LV_ANIM_OFF);
 }
 
 void styleDangerCell(lv_obj_t *cell, Danger d) {
@@ -49,23 +79,9 @@ void styleDangerCell(lv_obj_t *cell, Danger d) {
     lv_obj_set_style_text_color(label, lv_color_hex(forecast::dangerTextColor(d)), 0);
 }
 
-Danger &ratingRef(int day, int band) {
-    auto &r = s_fc.days[day];
-    return band == 0 ? r.alpine : (band == 1 ? r.treeline : r.belowTreeline);
-}
-
-// Touch demo: tapping a danger cell cycles its rating.
-void onDangerCellClicked(lv_event_t *e) {
-    lv_obj_t *cell = static_cast<lv_obj_t *>(lv_event_get_current_target(e));
-    const intptr_t idx = reinterpret_cast<intptr_t>(lv_event_get_user_data(e));
-    Danger &d = ratingRef(idx / 3, idx % 3);
-    d = forecast::nextDanger(d);
-    styleDangerCell(cell, d);
-}
-
 // ---------------------------------------------------------------- Danger tab
 
-void buildDangerTab() {
+void buildDangerTab(const forecast::Forecast &fc) {
     lv_obj_clean(s_dangerTab);
     lv_obj_set_style_pad_all(s_dangerTab, 12, 0);
 
@@ -82,7 +98,7 @@ void buildDangerTab() {
     lv_obj_remove_flag(grid, LV_OBJ_FLAG_SCROLLABLE);
 
     for (int day = 0; day < forecast::kDays; ++day) {
-        lv_obj_t *h = makeLabel(grid, s_fc.days[day].label.c_str(), &lv_font_montserrat_24);
+        lv_obj_t *h = makeLabel(grid, fc.days[day].label.c_str(), &lv_font_montserrat_24);
         lv_obj_set_grid_cell(h, LV_GRID_ALIGN_CENTER, day + 1, 1, LV_GRID_ALIGN_CENTER, 0, 1);
     }
 
@@ -92,76 +108,67 @@ void buildDangerTab() {
         lv_obj_set_grid_cell(bl, LV_GRID_ALIGN_START, 0, 1, LV_GRID_ALIGN_CENTER, band + 1, 1);
 
         for (int day = 0; day < forecast::kDays; ++day) {
+            const auto &r = fc.days[day];
+            const Danger d = band == 0 ? r.alpine : (band == 1 ? r.treeline : r.belowTreeline);
             lv_obj_t *cell = lv_obj_create(grid);
             lv_obj_set_grid_cell(cell, LV_GRID_ALIGN_STRETCH, day + 1, 1, LV_GRID_ALIGN_STRETCH, band + 1, 1);
             lv_obj_set_style_border_width(cell, 0, 0);
             lv_obj_set_style_radius(cell, 8, 0);
             lv_obj_remove_flag(cell, LV_OBJ_FLAG_SCROLLABLE);
-            lv_obj_add_flag(cell, LV_OBJ_FLAG_CLICKABLE);
-            // Visual press feedback
-            lv_obj_set_style_transform_scale(cell, 240, LV_STATE_PRESSED);
-
+            lv_obj_remove_flag(cell, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_t *l = makeLabel(cell, "", &lv_font_montserrat_20);
             lv_obj_center(l);
-            styleDangerCell(cell, ratingRef(day, band));
-            lv_obj_add_event_cb(cell, onDangerCellClicked, LV_EVENT_CLICKED,
-                                reinterpret_cast<void *>(static_cast<intptr_t>(day * 3 + band)));
+            styleDangerCell(cell, d);
         }
     }
 
-    lv_obj_t *hint = makeLabel(grid, "Tap a rating to cycle it (touch demo).  Swipe or use the tabs to change screens.",
-                               &lv_font_montserrat_14, 0x9AA8B8);
+    String foot = fc.validUntil.length() ? "Valid until " + fc.validUntil : String("");
+    lv_obj_t *hint = makeLabel(grid, foot.c_str(), &lv_font_montserrat_14, kMutedColor);
     lv_obj_set_grid_cell(hint, LV_GRID_ALIGN_CENTER, 0, 4, LV_GRID_ALIGN_CENTER, 4, 1);
 }
 
 // ---------------------------------------------------------------- Problems tab
 
-void buildProblemsTab() {
-    lv_obj_clean(s_problemsTab);
-    lv_obj_set_flex_flow(s_problemsTab, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_all(s_problemsTab, 12, 0);
-    lv_obj_set_style_pad_row(s_problemsTab, 12, 0);
+void buildProblemsTab(const forecast::Forecast &fc) {
+    prepareScrollTab(s_problemsTab);
 
-    if (s_fc.problems.empty()) {
-        makeLabel(s_problemsTab, "No avalanche problems listed.", &lv_font_montserrat_28);
+    if (fc.problems.empty()) {
+        makeLabel(s_problemsTab, fc.valid ? "No avalanche problems listed." : "", &lv_font_montserrat_24);
         return;
     }
-    for (const auto &p : s_fc.problems) {
+    for (const auto &p : fc.problems) {
         lv_obj_t *card = makePanel(s_problemsTab);
-        lv_obj_set_size(card, LV_PCT(100), LV_SIZE_CONTENT);
-        lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
-        lv_obj_set_style_pad_row(card, 6, 0);
-
         makeLabel(card, p.type.c_str(), &lv_font_montserrat_28, kAccentColor);
-        String facts = "Elevation: " + p.elevations + "    Aspects: " + p.aspects + "\nLikelihood: " +
-                       p.likelihood + "    Size: " + p.size;
+        String facts = "Elevation: " + p.elevations + "\nAspects: " + p.aspects + "\nLikelihood: " + p.likelihood +
+                       "\nExpected size: " + p.size;
         makeLabel(card, facts.c_str(), &lv_font_montserrat_20);
-        lv_obj_t *c = makeLabel(card, p.comment.c_str(), &lv_font_montserrat_20, 0xC8D2DC);
-        lv_obj_set_width(c, LV_PCT(100));
-        lv_label_set_long_mode(c, LV_LABEL_LONG_WRAP);
+        makeWrappedLabel(card, p.comment.c_str(), &lv_font_montserrat_20, kBodyColor);
     }
+}
+
+// ---------------------------------------------------------------- Conditions tab
+
+void buildConditionsTab(const forecast::Forecast &fc) {
+    prepareScrollTab(s_conditionsTab);
+    addTextCard(s_conditionsTab, "Avalanche Summary", fc.avalancheSummary);
+    addTextCard(s_conditionsTab, "Snowpack Summary", fc.snowpackSummary);
+    addTextCard(s_conditionsTab, "Weather Summary", fc.weatherSummary);
 }
 
 // ---------------------------------------------------------------- Details tab
 
-void buildDetailsTab() {
-    lv_obj_clean(s_detailsTab);
-    lv_obj_set_flex_flow(s_detailsTab, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_all(s_detailsTab, 12, 0);
-    lv_obj_set_style_pad_row(s_detailsTab, 12, 0);
+void buildDetailsTab(const forecast::Forecast &fc) {
+    prepareScrollTab(s_detailsTab);
+    addTextCard(s_detailsTab, "Highlights", fc.highlights);
 
-    lv_obj_t *card = makePanel(s_detailsTab);
-    lv_obj_set_size(card, LV_PCT(100), LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
-    makeLabel(card, "Highlights", &lv_font_montserrat_28, kAccentColor);
-    lv_obj_t *h = makeLabel(card, s_fc.highlights.c_str(), &lv_font_montserrat_20);
-    lv_obj_set_width(h, LV_PCT(100));
-    lv_label_set_long_mode(h, LV_LABEL_LONG_WRAP);
-
-    lv_obj_t *conf = makePanel(s_detailsTab);
-    lv_obj_set_size(conf, LV_PCT(100), LV_SIZE_CONTENT);
-    String txt = "Confidence: " + s_fc.confidence;
-    makeLabel(conf, txt.c_str(), &lv_font_montserrat_20);
+    String advice;
+    for (const auto &a : fc.travelAdvice) {
+        if (advice.length()) advice += "\n";
+        advice += "\xE2\x80\xA2 " + a;
+    }
+    addTextCard(s_detailsTab, "Terrain and Travel Advice", advice);
+    addTextCard(s_detailsTab, "Confidence", fc.confidence);
+    addTextCard(s_detailsTab, "Region", fc.title);
 }
 
 // ---------------------------------------------------------------- Touch test tab
@@ -201,7 +208,6 @@ void onTouchPad(lv_event_t *e) {
     lv_obj_set_x(s_tt.vline, lx);
     lv_obj_set_pos(s_tt.dot, lx - 12, ly - 12);
 
-    // Offset from nearest target
     int best = 0;
     int32_t bestD = INT32_MAX;
     for (int i = 0; i < 5; ++i) {
@@ -275,8 +281,6 @@ void buildTouchTab(lv_obj_t *tab) {
 // ---------------------------------------------------------------- public
 
 void build(const forecast::Forecast &fc) {
-    s_fc = fc;
-
     lv_obj_t *scr = lv_screen_active();
     lv_obj_set_style_bg_color(scr, lv_color_hex(kBgColor), 0);
     lv_obj_set_style_text_color(scr, lv_color_white(), 0);
@@ -290,14 +294,17 @@ void build(const forecast::Forecast &fc) {
     lv_obj_set_style_border_width(header, 0, 0);
     lv_obj_set_style_radius(header, 0, 0);
     lv_obj_set_style_pad_hor(header, 16, 0);
+    lv_obj_set_style_pad_ver(header, 4, 0);
     lv_obj_remove_flag(header, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *title = makeLabel(header, "Avalanche Forecast", &lv_font_montserrat_28);
     lv_obj_align(title, LV_ALIGN_LEFT_MID, 0, 0);
-    s_regionLabel = makeLabel(header, "", &lv_font_montserrat_20, kAccentColor);
-    lv_obj_align(s_regionLabel, LV_ALIGN_CENTER, 90, 0);
-    s_issuedLabel = makeLabel(header, "", &lv_font_montserrat_14, 0x9AA8B8);
-    lv_obj_align(s_issuedLabel, LV_ALIGN_RIGHT_MID, 0, 0);
+    s_regionLabel = makeLabel(header, "", &lv_font_montserrat_24, kAccentColor);
+    lv_obj_align(s_regionLabel, LV_ALIGN_LEFT_MID, 300, 0);
+    s_issuedLabel = makeLabel(header, "", &lv_font_montserrat_14, kBodyColor);
+    lv_obj_align(s_issuedLabel, LV_ALIGN_TOP_RIGHT, 0, 2);
+    s_statusLabel = makeLabel(header, "", &lv_font_montserrat_14, kMutedColor);
+    lv_obj_align(s_statusLabel, LV_ALIGN_BOTTOM_RIGHT, 0, -2);
 
     // Tabs
     lv_obj_t *tv = lv_tabview_create(scr);
@@ -310,14 +317,14 @@ void build(const forecast::Forecast &fc) {
     lv_obj_t *bar = lv_tabview_get_tab_bar(tv);
     lv_obj_set_style_bg_color(bar, lv_color_hex(kPanelColor), 0);
     lv_obj_set_style_text_font(bar, &lv_font_montserrat_20, 0);
-    lv_obj_set_style_text_color(bar, lv_color_hex(0x9AA8B8), 0);
+    lv_obj_set_style_text_color(bar, lv_color_hex(kMutedColor), 0);
 
     s_dangerTab = lv_tabview_add_tab(tv, "Danger");
     s_problemsTab = lv_tabview_add_tab(tv, "Problems");
+    s_conditionsTab = lv_tabview_add_tab(tv, "Conditions");
     s_detailsTab = lv_tabview_add_tab(tv, "Details");
-    lv_obj_t *touchTab = lv_tabview_add_tab(tv, "Touch Test");
+    lv_obj_t *touchTab = lv_tabview_add_tab(tv, "Touch");
 
-    // Selected tab button styling
     const uint32_t n = lv_obj_get_child_count(bar);
     for (uint32_t i = 0; i < n; ++i) {
         lv_obj_t *btn = lv_obj_get_child(bar, i);
@@ -331,12 +338,22 @@ void build(const forecast::Forecast &fc) {
 }
 
 void showForecast(const forecast::Forecast &fc) {
-    s_fc = fc;
-    lv_label_set_text(s_regionLabel, s_fc.region.c_str());
-    lv_label_set_text(s_issuedLabel, s_fc.issued.c_str());
-    buildDangerTab();
-    buildProblemsTab();
-    buildDetailsTab();
+    lv_label_set_text(s_regionLabel, fc.region.c_str());
+    String issued = fc.valid ? "Issued " + fc.issued : fc.issued;
+    lv_label_set_text(s_issuedLabel, issued.c_str());
+    buildDangerTab(fc);
+    buildProblemsTab(fc);
+    buildConditionsTab(fc);
+    buildDetailsTab(fc);
+}
+
+void setStatus(const char *text, StatusLevel level) {
+    if (s_statusLabel == nullptr) return;
+    uint32_t color = kMutedColor;
+    if (level == StatusLevel::Ok) color = 0x7CC47F;
+    if (level == StatusLevel::Error) color = 0xF7941E;
+    lv_obj_set_style_text_color(s_statusLabel, lv_color_hex(color), 0);
+    lv_label_set_text(s_statusLabel, text);
 }
 
 }  // namespace ui

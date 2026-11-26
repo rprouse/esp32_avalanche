@@ -5,15 +5,20 @@ built with PlatformIO (pioarduino), Arduino-ESP32 3.3 and LVGL 9.
 
 ## Build & flash
 
-1. Open the folder in VS Code with the pioarduino IDE extension.
-2. Plug the board in using the USB-C port labelled **UART1** (slide switch on UART1).
-3. Run **Upload and Monitor** (or `pio run -t upload -t monitor` from PowerShell).
+1. Copy `include/config.sample.h` to `include/config.h` and fill in your Wi-Fi details, forecast
+   location (default: Fernie, BC) and time zone. `config.h` is git-ignored.
+2. Open the folder in VS Code with the pioarduino IDE extension.
+3. Plug the board in using the USB-C port labelled **UART1** (slide switch on UART1).
+4. Run **Upload and Monitor** (or `pio run -t upload -t monitor` from PowerShell).
 
-## What it does now
+## What it does
 
-- Header plus four tabs (swipe or tap): **Danger** (3-day ratings by elevation, tap a cell to cycle it),
-  **Problems**, **Details**, **Touch Test** (crosshair, coordinates, and alignment targets).
-- The forecast data is placeholder sample data.
+- Downloads the [Avalanche Canada](https://avalanche.ca) forecast for the configured location at power-on
+  and once a day (default 17:30 local), re-checking until the new forecast is published.
+- Tabs (swipe or tap): **Danger** (3-day ratings by elevation band), **Problems**, **Conditions**
+  (avalanche, snowpack and weather summaries), **Details** (highlights, travel advice, confidence),
+  **Touch** (touch alignment test).
+- The header shows when the forecast was issued and the download status.
 
 See [AGENTS.md](AGENTS.md) for hardware details, architecture, pitfalls and the roadmap.
 

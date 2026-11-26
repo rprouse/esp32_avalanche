@@ -1,5 +1,7 @@
 #include <Arduino.h>
 
+#include "app/updater.h"
+#include "app_config.h"
 #include "display/display_port.h"
 #include "forecast/forecast.h"
 #include "ui/ui.h"
@@ -18,20 +20,19 @@ void setup() {
 
     {
         display::Lock lock;
-        ui::build(forecast::sample());
+        ui::build(forecast::placeholder(FORECAST_NAME));
     }
-
     Serial.println("UI ready");
+
+    // Wi-Fi, NTP and forecast downloads run in their own task (core 0).
+    updater::start();
 }
 
 void loop() {
-    // LVGL runs in its own task (see display_port.cpp). Future: Wi-Fi, NTP and the
-    // daily forecast download go here or in their own task; update the UI with
-    //   { display::Lock lock; ui::showForecast(fc); }
     static uint32_t last = 0;
-    if (millis() - last > 10000) {
+    if (millis() - last > 60000) {
         last = millis();
         Serial.printf("heap free: %u  psram free: %u\n", (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getFreePsram());
     }
-    delay(50);
+    delay(100);
 }

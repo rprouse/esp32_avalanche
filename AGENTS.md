@@ -8,8 +8,19 @@ A wall/desk display that downloads the **Avalanche Canada** forecast for a local
 once a day and shows it on a 7" touch screen. Touch (tap tabs / swipe) switches between
 screens: danger ratings, avalanche problems, details, etc.
 
-Current state: hardware bring-up scaffold. LVGL UI with placeholder forecast data
-(`forecast::sample()`), working touch, a touch-alignment test screen. No Wi-Fi/network yet.
+Current state: working end to end. Connects to Wi-Fi, syncs time via NTP, downloads the
+Avalanche Canada forecast for the configured point (default Fernie, BC) at boot and then
+daily, and shows it in a tabbed LVGL UI (Danger, Problems, Conditions, Details, Touch test).
+
+## Local configuration (`include/config.h`, git-ignored)
+
+Copy `include/config.sample.h` to `include/config.h` and fill it in. It holds the Wi-Fi
+SSID/password, forecast latitude/longitude, display name, language, POSIX time zone,
+NTP servers and refresh schedule. **Never commit `config.h`** and never print the
+Wi-Fi password in logs or messages. `src/app_config.h` includes it, fails the build
+with a clear error if it's missing, and supplies defaults for optional settings. When
+adding a new setting, add it to `config.sample.h` **and** give it a default in
+`app_config.h` so existing `config.h` files keep building.
 
 ## Hardware: Waveshare ESP32-S3-Touch-LCD-7 (touch version, SKU 27078, board rev V1.2)
 
@@ -128,12 +139,17 @@ The Espressif libs are **not** in the PlatformIO registry, so they're pulled fro
 
 ```
 src/
-  main.cpp                  setup(): display::begin() -> ui::build(sample data); loop(): idle/heap log
-  display/display_port.*    Board + LVGL glue: init, flush, touch read, LVGL task, mutex
-  ui/ui.*                   All LVGL screens (header + tabview: Danger, Problems, Details, Touch Test)
-  forecast/forecast.*       Forecast data model, danger-scale names/colours, sample data
+  main.cpp                    setup(): display::begin() -> ui::build(placeholder) -> updater::start()
+  app_config.h                includes include/config.h + defaults
+  app/updater.*               Task on core 0: Wi-Fi, NTP, fetch schedule, retries, pushes to UI
+  display/display_port.*      Board + LVGL glue: init, flush, touch read, LVGL task, mutex
+  ui/ui.*                     All LVGL screens (header + status line, tabview)
+  forecast/forecast.*         Forecast data model, danger-scale names/colours, placeholder
+  forecast/forecast_client.*  HTTPS download, JSON -> Forecast, HTML -> plain text
 include/
   lv_conf.h, esp_panel_board_custom_conf.h
+  config.sample.h             template for config.h (committed)
+  config.h                    local secrets/settings (git-ignored)
 ```
 
 ### Display architecture (read before touching display_port.cpp)
@@ -178,16 +194,33 @@ include/
 - The SD card CS is on the expander (EXIO4), so the stock `SD` library's CS pin argument
   won't work directly. See Waveshare's `03_SD_Test` example.
 
+## Avalanche Canada API
+
+- Endpoint: `GET https://api.avalanche.ca/forecasts/{en|fr}/products/point?lat=..&long=..`
+  returns the forecast for the region containing the point (~8 KB JSON, via CloudFront).
+  No API key needed.
+- Fields used (all under `report`): `dateIssued`, `validUntil` (ISO-8601 UTC), `title`,
+  `highlights` (HTML), `confidence.rating.display` + `confidence.statements[]`,
+  `summaries[]` (`type.value` = `avalanche-summary` / `snowpack-summary` / `weather-summary`,
+  `content` HTML), `dangerRatings[3]` (`date.display`, `ratings.{alp,tln,btl}.rating.value` =
+  `low|moderate|considerable|high|extreme|norating|...`), `problems[]` (`type.display`,
+  `comment` HTML, `data.elevations[].display`, `data.aspects[].value`,
+  `data.likelihood.value` like `possible_unlikely`, `data.expectedSize.{min,max}` as
+  **strings** like `"1.0"`), `terrainAndTravelAdvice[]`.
+- TLS: the chain ends at **Amazon Root CA 1**, which is pinned in `forecast_client.cpp`
+  (valid to 2038). If the host moves off AWS, downloads fail with a TLS error.
+- The server answers HTTP/1.0 with no Content-Length and closes the connection.
+  `HTTPClient::getStream()` + streaming parse returned empty data, so we read the body with
+  `getString()` and parse that. `Stream::setTimeout()` is in **milliseconds**.
+- Text fields are HTML; `forecast::htmlToText()` converts them and maps Unicode
+  punctuation and accented letters to characters the built-in Montserrat fonts contain
+  (ASCII plus `°` and `•`). French text loses its accents for that reason; a custom
+  font would be needed for full French support.
+
 ## Roadmap / next steps
 
-1. Wi-Fi provisioning (start with `include/secrets.h`, which is git-ignored; later maybe a captive portal).
-2. NTP time sync (`configTzTime`), so the screen can show when it was updated.
-3. Fetch the forecast from Avalanche Canada over HTTPS (`WiFiClientSecure` + `HTTPClient`).
-   The public API is at `https://api.avalanche.ca/` (e.g. forecasts by point:
-   `/forecasts/en/products/point?lat=..&long=..`). **Verify the endpoint and its JSON
-   shape before coding against it.** Responses can be large: parse with ArduinoJson using a
-   filter document and a PSRAM allocator.
-4. Map the JSON to `forecast::Forecast`, then `display::Lock` + `ui::showForecast()`.
-5. Refresh daily (forecasts are typically published around 16:00 Pacific), retry with
-   backoff on failure, and show a "stale" indicator if the data is old.
-6. Optional: cache the last forecast in flash (LittleFS/NVS) so it shows immediately on boot.
+1. Cache the last forecast in flash (LittleFS/NVS) so it shows immediately on boot or
+   while offline, and show a "stale" indicator if the data is old.
+2. Optional: on-device Wi-Fi setup (captive portal) instead of `config.h`.
+3. Optional: screen off at night (backlight via EXIO2) and/or touch to wake.
+4. Optional: remove the Touch test tab once it's no longer needed.

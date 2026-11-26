@@ -28,28 +28,14 @@ uint32_t dangerTextColor(Danger d) {
     return (d == Danger::High || d == Danger::Extreme) ? 0xFFFFFF : 0x000000;
 }
 
-Danger nextDanger(Danger d) {
-    return d == Danger::Extreme ? Danger::Low : static_cast<Danger>(static_cast<uint8_t>(d) + 1);
-}
-
-Forecast sample() {
+Forecast placeholder(const char *region) {
     Forecast f;
-    f.region = "Sample Region";
-    f.issued = "Sample data - not live";
-    f.validUntil = "";
-    f.days[0] = {"Today", Danger::Considerable, Danger::Moderate, Danger::Low};
-    f.days[1] = {"Tomorrow", Danger::Considerable, Danger::Considerable, Danger::Moderate};
-    f.days[2] = {"Day 3", Danger::Moderate, Danger::Moderate, Danger::Low};
-    f.problems = {
-        {"Wind Slab", "Alpine, Treeline", "N, NE, E, SE", "Likely", "1 - 2",
-         "Recent strong SW winds have built reactive slabs on lee features."},
-        {"Persistent Slab", "Alpine, Treeline", "All aspects", "Possible", "2 - 3",
-         "A buried weak layer remains a concern in thin, rocky areas."},
-    };
-    f.highlights =
-        "This is placeholder text. The real forecast will be downloaded daily from "
-        "Avalanche Canada and shown here.";
-    f.confidence = "Moderate";
+    f.region = region;
+    f.issued = "Waiting for forecast...";
+    f.days[0].label = "Today";
+    f.days[1].label = "Tomorrow";
+    f.days[2].label = "Day 3";
+    f.highlights = "Connecting to Wi-Fi and downloading the latest forecast from Avalanche Canada.";
     return f;
 }
 
