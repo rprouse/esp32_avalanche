@@ -9,7 +9,7 @@
  *
  * Layout (800x480):
  *   +--------------------------------------------------+
- *   | title                            region  [refresh]|  56 px
+ *   | logo title         HH:MM          region [refresh]|  56 px
  *   +--------------------------------------------------+
  *   | tab content (swipe left/right or tap a tab)      |
  *   | (Danger tab footer: issued time + update status) |

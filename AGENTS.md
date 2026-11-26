@@ -187,7 +187,8 @@ include/
 
 - 800x480 landscape, dark theme, 56 px header, 64 px bottom tab bar (big touch targets).
 - Tab order: Weather (default), Danger, Problems, Conditions, Details.
-- Header: mountain logo + "Backcountry Forecast" (left), location + refresh button (right).
+- Header: mountain logo + "Backcountry" (left), 24 h clock in gold `#FFC857` (centre; an LVGL
+  timer that only changes the text once a minute), location + refresh button (right).
   The logo is Material Icons "terrain" (Apache 2.0, `assets/icons/`), mirrored and rasterized to
   an A8 image by `tools/make_logo.py` (output `src/ui/logo_icon.c` is small and committed;
   re-run the script after changing the SVG). A8 images are drawn in the `image_recolor` colour.
@@ -285,4 +286,3 @@ include/
 
 1. Optional: on-device Wi-Fi setup (captive portal) instead of `config.h`.
 2. Optional: screen off at night (backlight via EXIO2) and/or touch to wake.
-3. Optional: show a clock in the header (the CYD weather station had one).

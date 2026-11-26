@@ -31,16 +31,21 @@
 
 // ----------------------------------------------------------------------------- Time
 // POSIX TZ string for the local time zone (used for the clock and refresh schedule).
-// Fernie is on Mountain Time:      "MST7MDT,M3.2.0,M11.1.0"
-// Most of BC is on Pacific Time:   "PST8PDT,M3.2.0,M11.1.0"
-// Alberta (Mountain):              "MST7MDT,M3.2.0,M11.1.0"
-// More: https://github.com/nayarsystems/posix_tz_db/blob/master/zones.csv
-#define TIME_ZONE           "MST7MDT,M3.2.0,M11.1.0"
+// BC and Alberta now stay on daylight time all year (no more clock changes), so
+// these are fixed offsets with no DST rule. Note the POSIX sign is inverted:
+// "MDT6" means 6 hours *behind* UTC.
+// Fernie (East Kootenay), Mountain Daylight Time, UTC-6:   "MDT6"
+// Alberta, Mountain Daylight Time, UTC-6:                  "MDT6"
+// Rest of BC, Pacific Daylight Time, UTC-7:                "PDT7"
+// Regions that still switch clocks need a DST rule, e.g. Pacific with DST:
+// "PST8PDT,M3.2.0,M11.1.0". More: https://github.com/nayarsystems/posix_tz_db/blob/master/zones.csv
+// (that list may not reflect recent changes like BC's and Alberta's).
+#define TIME_ZONE           "MDT6"
 #define NTP_SERVER_1        "pool.ntp.org"
 #define NTP_SERVER_2        "time.nist.gov"
 
 // ----------------------------------------------------------------------------- Refresh schedule
-// Forecasts are usually published around 16:00-17:00 Pacific. The display checks
+// Forecasts are usually published around 16:00 Pacific (17:00 in Fernie/Alberta). The display checks
 // once a day at this local time, then keeps checking every
 // FORECAST_RECHECK_MINUTES until a newer forecast appears (up to
 // FORECAST_RECHECK_MAX tries). It also fetches at power-on.

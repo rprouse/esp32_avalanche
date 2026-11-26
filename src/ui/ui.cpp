@@ -18,6 +18,7 @@ constexpr int32_t kTabBarH = 64;
 constexpr uint32_t kBgColor = 0x10161F;
 constexpr uint32_t kPanelColor = 0x1C2633;
 constexpr uint32_t kAccentColor = 0x4FA3E0;
+constexpr uint32_t kClockColor = 0xFFC857;  // warm gold
 constexpr uint32_t kMutedColor = 0x9AA8B8;
 constexpr uint32_t kBodyColor = 0xD8E0E8;
 
@@ -368,7 +369,26 @@ void build(const forecast::Forecast &fc) {
     lv_image_set_src(logo, &logo_icon);  // A8 image: drawn in the recolor colour
     lv_obj_set_style_image_recolor(logo, lv_color_white(), 0);
     lv_obj_set_style_image_recolor_opa(logo, LV_OPA_COVER, 0);
-    makeLabel(brand, "Backcountry Forecast", &lv_font_montserrat_28);
+    makeLabel(brand, "Backcountry", &lv_font_montserrat_28);
+
+    // Clock (centre). Updated by an LVGL timer, so it runs in the LVGL task (no lock needed).
+    // The text only changes once a minute: every change redraws the full frame.
+    lv_obj_t *clock = makeLabel(header, "--:--", &lv_font_montserrat_40, kClockColor);
+    lv_obj_align(clock, LV_ALIGN_CENTER, 0, 0);
+    lv_timer_create(
+        [](lv_timer_t *t) {
+            static int lastMinute = -1;
+            const time_t now = time(nullptr);
+            if (now < 1700000000) return;  // clock not set yet: keep "--:--"
+            struct tm tm;
+            localtime_r(&now, &tm);
+            const int minute = tm.tm_hour * 60 + tm.tm_min;
+            if (minute == lastMinute) return;
+            lastMinute = minute;
+            lv_label_set_text_fmt(static_cast<lv_obj_t *>(lv_timer_get_user_data(t)), "%02d:%02d", tm.tm_hour,
+                                  tm.tm_min);
+        },
+        1000, clock);
 
     // Refresh button (far right), location to its left.
     constexpr int32_t kRefreshSize = 48;
