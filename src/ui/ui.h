@@ -1,6 +1,7 @@
 #pragma once
 
 #include "forecast/forecast.h"
+#include "weather/alpine.h"
 #include "weather/weather.h"
 
 /**
@@ -12,7 +13,8 @@
  *   | logo title         HH:MM          region [refresh]|  56 px
  *   +--------------------------------------------------+
  *   | tab content (swipe left/right or tap a tab)      |
- *   | (Danger tab footer: issued time + update status) |
+ *   | (Danger tab: snow/freezing level/wind strip,     |
+ *   |  footer with issued time + update status)        |
  *   +--------------------------------------------------+
  *   | Weather | Hourly | Danger | Problems | Conditions | Details |  64 px tab bar
  *   +--------------------------------------------------+
@@ -32,6 +34,8 @@ void setStatus(const char *text, StatusLevel level);
 /** Weather tab: show new data, or an error/instruction message. */
 void showWeather(const weather::Weather &w);
 void setWeatherError(const char *text);
+/** Mountain weather (Open-Meteo): Danger tab strip and the Hourly tab's alpine rows. */
+void showAlpine(const weather::Alpine &a);
 
 /** Header refresh button: callback runs in the LVGL task (keep it short, e.g. notify a task). */
 void setRefreshCallback(void (*cb)());

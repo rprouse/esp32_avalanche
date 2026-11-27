@@ -59,6 +59,14 @@
 #define WEATHER_LONGITUDE FORECAST_LONGITUDE
 #endif
 
+// Mountain weather (Open-Meteo, no key): freezing level, ridge wind, snowfall totals
+#ifndef ALPINE_WEATHER
+#define ALPINE_WEATHER 1
+#endif
+#ifndef ALPINE_MODEL
+#define ALPINE_MODEL "gem_seamless"
+#endif
+
 // Over-the-air updates: disabled while the password is empty
 #ifndef OTA_PASSWORD
 #define OTA_PASSWORD ""

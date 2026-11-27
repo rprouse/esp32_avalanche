@@ -72,6 +72,15 @@
 // #define WEATHER_LATITUDE      49.4627
 // #define WEATHER_LONGITUDE     -115.0873
 
+// ----------------------------------------------------------------------------- Mountain weather (Open-Meteo)
+// Freezing level, ridgetop wind (700 hPa, ~3000 m) and modelled snowfall totals from
+// https://open-meteo.com (free, no API key) for the weather location above. Shown on the
+// Danger tab and, with an OpenWeatherMap key, on the Hourly tab. Refreshes with the weather.
+// ALPINE_MODEL: "gem_seamless" (Environment Canada GEM/HRDPS, best for Canada), or e.g.
+// "best_match", "gfs_seamless", "icon_seamless". 0 disables it.
+#define ALPINE_WEATHER  1
+#define ALPINE_MODEL    "gem_seamless"
+
 // ----------------------------------------------------------------------------- Over-the-air updates
 // Set a password to allow firmware uploads over Wi-Fi (leave empty to disable):
 //     pio run -t upload --upload-port backcountry.local

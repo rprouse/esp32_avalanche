@@ -155,6 +155,7 @@ src/
   forecast/forecast_client.*  HTTPS download, JSON -> Forecast, HTML -> plain text
   weather/weather.h           Weather model + icon/moon helpers
   weather/weather_client.cpp  OpenWeatherMap current + 5 day/3 h forecast -> daily rows; icon mapping
+  weather/alpine*             Open-Meteo mountain weather: freezing level, 700 hPa wind, snowfall
   weather/moon_phase.cpp      Moon phase (ported from the CYD weather station / Bodmer)
   weather/weather_icons.*     GENERATED LVGL images (git-ignored), see below
   net/root_ca.*               Pinned root CA bundle for all HTTPS hosts
@@ -199,7 +200,9 @@ include/
   temperature `lv_line` with values, a dashed freezing line, and snow (white) / rain (blue) bars
   scaled to max(5 mm, the largest slot). Absolute layout constants are at the top of the file.
   `lv_line` keeps a pointer to its points, so the point arrays are static. The tab adds ~100 small
-  LVGL objects (~28 KB internal heap).
+  LVGL objects (~28 KB internal heap). With mountain weather, two more rows (freezing level, ridge
+  wind arrow + speed) are drawn by **one** object's draw callback (`drawAlpineRows`), not ~50
+  labels/lines: internal RAM is shared with TLS, which needs ~30-40 KB per HTTPS request.
 - Header: mountain logo + "Backcountry" (left), 24 h clock in gold `#FFC857` (centre; an LVGL
   timer that only changes the text once a minute), location + refresh button (right).
   The logo is Material Icons "terrain" (Apache 2.0, `assets/icons/`), mirrored and rasterized to
@@ -208,6 +211,9 @@ include/
 - The refresh button calls `updater::requestRefresh()`, which wakes the updater task to fetch both sources now without
   changing the daily avalanche schedule; the button is disabled while it runs.
 - The avalanche issued time and download status (`ui::setStatus`) are in the Danger tab footer.
+- Danger tab mountain strip (between grid and footer, hidden until data arrives): modelled snow
+  24/48/72 h, next 48 h, current freezing level and ridge wind, from `ui::showAlpine()`. Totals
+  are relative to now and recomputed on new data and at the top of each hour (clock timer).
 - Problems tab graphics (`src/ui/problem_graphics.*`) are drawn natively with LVGL draw callbacks
   rather than using Avalanche Canada's PNGs, which are designed for white backgrounds (their dark
   labels vanish on the navy theme). They are:
@@ -288,6 +294,26 @@ include/
   live in `src/net/root_ca.cpp`.
 - NTP is started (`configTzTime`) only after Wi-Fi connects. Starting it earlier made the first
   sync take ~30 s.
+
+## Mountain weather (Open-Meteo, issues #11 and #12)
+
+- `GET https://api.open-meteo.com/v1/forecast` for the weather point, free, **no key**, hourly
+  `temperature_2m`, `temperature_*hPa` + `geopotential_height_*hPa` (850/700/600/500),
+  `wind_speed_700hPa`, `wind_direction_700hPa`, `snowfall`, `past_hours=72&forecast_hours=72`,
+  `timeformat=unixtime`. ~13 KB JSON; parsed into PSRAM with a custom ArduinoJson allocator.
+  Fetched with the weather (every `WEATHER_REFRESH_MINUTES`), independent of the OpenWeatherMap key.
+  `ALPINE_WEATHER 0` disables it; `ALPINE_MODEL` (default `gem_seamless`) picks the model.
+- GEM has no `freezing_level_height` (all null), so `freezingLevel()` computes it: the highest
+  height where temperature drops through 0 °C going up, interpolated between the ground (grid
+  `elevation`, `temperature_2m`) and the pressure levels above it. When it's already freezing at
+  the ground it's shown as `<1000` (the grid height, ~1018 m at Fernie). Checked against ICON/GFS
+  freezing levels: within ~100 m.
+- Snowfall is the sum of the preceding hour (cm), so totals use hours ending in `(from, to]`.
+  Values are modelled, not measured (real station data is issue #13).
+- Wind colours follow the avalanche-forecast wind classes: light <=25, moderate 26-40, strong
+  41-60, extreme >60 km/h. Arrows point downwind.
+- TLS: Let's Encrypt (YE1 -> Root YE, cross-signed up to **ISRG Root X1**, pinned in `root_ca.cpp`).
+- Cache: `/alpine.cache`, key lat,lon,model. Values are stored metric; the UI converts.
 
 ## Wi-Fi setup mode (`src/app/wifi_setup.*`, issue #8)
 
@@ -370,7 +396,8 @@ no pop-ups and nothing hidden.
 - The raw JSON responses are saved on the LittleFS filesystem in the `spiffs` partition of
   `default_16MB.csv` (3.4 MB, mounted with `LittleFS.begin(true)`, formatted on first use):
   `/avalanche.cache` (~8 KB, written only when the issued time changes), and `/wx_current.cache` +
-  `/wx_forecast.cache` (~17 KB, written on every weather refresh).
+  `/wx_forecast.cache` (~17 KB, written on every weather refresh), and `/alpine.cache` (~13 KB,
+  every mountain weather refresh).
 - At boot `updater::loadCached()` parses them with the **same parsers** as live downloads and
   shows them before Wi-Fi connects (about 1.5 s after power-on). Live data replaces them once it
   downloads.

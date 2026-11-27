@@ -8,6 +8,7 @@
 #include "ui/hourly_view.h"
 #include "ui/logo_icon.h"
 #include "ui/problem_graphics.h"
+#include "weather/alpine.h"
 #include "weather/weather.h"
 
 using forecast::Danger;
@@ -61,6 +62,8 @@ constexpr uint32_t kWifiHoldMs = 3000;
 lv_obj_t *s_problemsTab = nullptr;
 lv_obj_t *s_conditionsTab = nullptr;
 lv_obj_t *s_detailsTab = nullptr;
+void buildAlpineStrip(lv_obj_t *parent);
+void updateAlpineStrip();
 
 // ---------------------------------------------------------------- helpers
 
@@ -181,6 +184,8 @@ void buildDangerSkeleton() {
     lv_obj_set_style_pad_gap(s_dangerGrid, 8, 0);
     lv_obj_remove_flag(s_dangerGrid, LV_OBJ_FLAG_SCROLLABLE);
 
+    buildAlpineStrip(s_dangerTab);
+
     lv_obj_t *footer = lv_obj_create(s_dangerTab);
     lv_obj_set_size(footer, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_style_bg_opa(footer, LV_OPA_TRANSP, 0);
@@ -191,6 +196,88 @@ void buildDangerSkeleton() {
     lv_obj_set_flex_align(footer, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     s_issuedLabel = makeLabel(footer, "", &lv_font_montserrat_14, kBodyColor);
     s_statusLabel = makeLabel(footer, "", &lv_font_montserrat_14, kMutedColor);
+}
+
+// ---------------------------------------------------------------- Mountain conditions strip
+//
+// Under the danger grid: modelled snowfall totals, freezing level and ridge wind (Open-Meteo).
+// Hidden until the first data arrives. Totals are relative to now, so they're
+// recomputed on new data and at the top of each hour.
+
+weather::Alpine s_alpine;
+
+constexpr int kAlpineTiles = 6;
+struct AlpineStrip {
+    lv_obj_t *panel = nullptr;
+    lv_obj_t *value[kAlpineTiles] = {};
+    lv_obj_t *windCaption = nullptr;  // carries the wind unit
+} s_alp;
+
+// A 6 x 2 grid of plain labels (captions over values): few objects, since internal RAM
+// is shared with TLS.
+void buildAlpineStrip(lv_obj_t *parent) {
+    static const char *const kCaptions[kAlpineTiles] = {"Snow 24 h", "Snow 48 h", "Snow 72 h",
+                                                        "Next 48 h", "Freezing level", "Ridge wind"};
+    static const int32_t cols[] = {LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1),
+                                   LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST};
+    static const int32_t rows[] = {LV_GRID_CONTENT, LV_GRID_CONTENT, LV_GRID_TEMPLATE_LAST};
+    s_alp.panel = makePanel(parent);
+    lv_obj_set_layout(s_alp.panel, LV_LAYOUT_GRID);
+    lv_obj_set_grid_dsc_array(s_alp.panel, cols, rows);
+    lv_obj_set_style_pad_ver(s_alp.panel, 6, 0);
+    lv_obj_set_style_pad_row(s_alp.panel, 0, 0);
+    lv_obj_add_flag(s_alp.panel, LV_OBJ_FLAG_HIDDEN);
+    for (int i = 0; i < kAlpineTiles; ++i) {
+        lv_obj_t *caption = makeLabel(s_alp.panel, kCaptions[i], &lv_font_montserrat_14, kMutedColor);
+        lv_obj_set_grid_cell(caption, LV_GRID_ALIGN_CENTER, i, 1, LV_GRID_ALIGN_CENTER, 0, 1);
+        if (i == kAlpineTiles - 1) s_alp.windCaption = caption;
+        s_alp.value[i] = makeLabel(s_alp.panel, "", &lv_font_montserrat_24);
+        lv_obj_set_grid_cell(s_alp.value[i], LV_GRID_ALIGN_CENTER, i, 1, LV_GRID_ALIGN_CENTER, 1, 1);
+    }
+}
+
+void setTile(int i, const String &value, const char *unit, uint32_t color = 0xFFFFFF) {
+    String text = value;
+    if (unit[0]) text += String(" ") + unit;
+    lv_label_set_text(s_alp.value[i], text.c_str());
+    lv_obj_set_style_text_color(s_alp.value[i], lv_color_hex(color), 0);
+}
+
+String fmtSnow(float cm, bool metric) {
+    char buf[12];
+    if (!metric) snprintf(buf, sizeof buf, "%.1f", cm / 2.54f);
+    else snprintf(buf, sizeof buf, cm > 0 && cm < 1 ? "%.1f" : "%.0f", cm);  // a trace shows as 0.3, not 0
+    return buf;
+}
+
+void updateAlpineStrip() {
+    if (s_alp.panel == nullptr || !s_alpine.valid) return;
+    const auto &a = s_alpine;
+    const bool m = a.metric;
+    // Before NTP sync (e.g. offline after a power loss) use the download time instead.
+    const time_t now = time(nullptr) > 1700000000 ? time(nullptr) : a.fetched;
+    const char *snowUnit = m ? "cm" : "in";
+    lv_label_set_text(s_alp.windCaption, m ? "Ridge wind km/h" : "Ridge wind mph");
+    setTile(0, fmtSnow(a.snowfall(now - 24 * 3600, now), m), snowUnit);
+    setTile(1, fmtSnow(a.snowfall(now - 48 * 3600, now), m), snowUnit);
+    setTile(2, fmtSnow(a.snowfall(now - 72 * 3600, now), m), snowUnit);
+    setTile(3, "+" + fmtSnow(a.snowfall(now, now + 48 * 3600), m), snowUnit, kAccentColor);
+
+    const weather::AlpineHour *h = a.at(now);
+    if (h == nullptr) {
+        setTile(4, "-", "");
+        setTile(5, "-", "");
+    } else {
+        setTile(4, fmtFreezingLevel(h->freezingLevel, a.groundElevation, m), m ? "m" : "ft");
+        if (isnan(h->windSpeed)) {
+            setTile(5, "-", "");
+        } else {
+            const float speed = m ? h->windSpeed : h->windSpeed / 1.609f;
+            setTile(5, String(weather::windDirName(h->windDeg)) + " " + String(lroundf(speed)), "",
+                    windClassColor(h->windSpeed));
+        }
+    }
+    lv_obj_remove_flag(s_alp.panel, LV_OBJ_FLAG_HIDDEN);
 }
 
 // ---------------------------------------------------------------- Problems tab
@@ -653,6 +740,7 @@ void build(const forecast::Forecast &fc) {
             lv_label_set_text_fmt(static_cast<lv_obj_t *>(lv_timer_get_user_data(t)), "%02d:%02d", tm.tm_hour,
                                   tm.tm_min);
             applyFreshness();  // staleness changes with time, not just with new data
+            if (tm.tm_min == 0) updateAlpineStrip();  // totals are relative to now
         },
         1000, clock);
 
@@ -808,6 +896,12 @@ void showWeather(const weather::Weather &w) {
     s_fresh.wxError = false;
     s_fresh.lastKey = -1;
     applyFreshness();
+}
+
+void showAlpine(const weather::Alpine &a) {
+    s_alpine = a;
+    updateAlpineStrip();
+    setHourlyAlpine(&s_alpine);
 }
 
 void setWeatherError(const char *text) {
