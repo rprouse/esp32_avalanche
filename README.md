@@ -48,13 +48,18 @@ Change the network name with `OTA_HOSTNAME`. Serial monitoring still needs the U
   and once a day (default 17:30 local), re-checking until the new forecast is published.
 - Tabs (swipe or tap):
   - **Weather** (shown first): current conditions, wind, sun and moon, and a 5-day forecast with snow and rain
-  - **Hourly**: the next 48 hours in 3-hour steps, with a temperature line, freezing line and snow/rain bars
-  - **Danger**: 3-day ratings by elevation band
+  - **Hourly**: the next 48 hours in 3-hour steps, with a temperature line, freezing line, snow/rain bars,
+    freezing level and ridgetop wind
+  - **Danger**: 3-day ratings by elevation band, plus snowfall totals (past 24/48/72 h, next 48 h),
+    the current freezing level and ridgetop wind
   - **Problems**: avalanche problems with an aspect/elevation rose and likelihood and size scales
   - **Conditions**: avalanche, snowpack and weather summaries
   - **Details**: highlights, travel advice and confidence
 - The Weather tab needs a free [OpenWeatherMap](https://openweathermap.org/api) API key in `config.h`
   (`OPENWEATHER_API_KEY`); without one the tab explains how to enable it.
+- Mountain weather (freezing level, wind at about 3000 m, modelled snowfall) comes from
+  [Open-Meteo](https://open-meteo.com) using Environment Canada's GEM model. It needs no key; set
+  `ALPINE_WEATHER 0` in `config.h` to turn it off.
 - The last forecast and weather are saved to flash and shown immediately at power-on, even with no
   internet, until fresh data downloads.
 - If the avalanche forecast is out of date, a warning icon appears in the header, past days fade and

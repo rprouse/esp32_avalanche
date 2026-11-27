@@ -13,6 +13,7 @@
 #include "net/wifi_creds.h"
 #include "storage/cache.h"
 #include "ui/ui.h"
+#include "weather/alpine.h"
 #include "weather/weather.h"
 
 namespace updater {
@@ -210,6 +211,35 @@ void updateWeather(time_t now) {
           (unsigned)ESP.getFreeHeap());
 }
 
+// ------------------------------------------------------------------ mountain weather (Open-Meteo)
+
+constexpr bool kAlpineEnabled = ALPINE_WEATHER != 0;
+time_t s_alpineNext = 0;
+
+String alpineKey() {
+    return weather::alpineKey(WEATHER_LATITUDE, WEATHER_LONGITUDE, ALPINE_MODEL);
+}
+
+void updateAlpine(time_t now) {
+    weather::Alpine a;
+    String error, body;
+    if (!weather::fetchAlpine(WEATHER_LATITUDE, WEATHER_LONGITUDE, ALPINE_MODEL, a, error, &body)) {
+        // Keep showing the last data; the next attempt comes sooner.
+        log_w("Mountain weather download failed: %s", error.c_str());
+        s_alpineNext = now + FORECAST_RETRY_MINUTES * 60;
+        return;
+    }
+    a.metric = WEATHER_UNITS_METRIC;
+    cache::save("alpine", a.fetched, alpineKey(), body);
+    {
+        display::Lock lock;
+        ui::showAlpine(a);
+    }
+    s_alpineNext = now + WEATHER_REFRESH_MINUTES * 60;
+    log_i("Mountain weather updated (%u hours). Free heap %u, largest block %u", (unsigned)a.hours.size(),
+          (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
+}
+
 // Show whatever was saved before the last power-off, before touching the network.
 void loadCached() {
     if (!cache::begin()) return;
@@ -229,6 +259,21 @@ void loadCached() {
             log_i("Showing cached forecast (issued %s)", fc.issued.c_str());
         } else {
             log_w("Cached forecast unreadable: %s", error.c_str());
+        }
+    }
+
+    if (kAlpineEnabled && cache::load("alpine", alpineKey(), fetched, body)) {
+        weather::Alpine a;
+        String error;
+        if (weather::parseAlpine(body, a, error)) {
+            a.metric = WEATHER_UNITS_METRIC;
+            a.fetched = fetched;
+            a.fromCache = true;
+            display::Lock lock;
+            ui::showAlpine(a);
+            log_i("Showing cached mountain weather");
+        } else {
+            log_w("Cached mountain weather unreadable: %s", error.c_str());
         }
     }
 
@@ -294,6 +339,7 @@ void task(void *) {
         }
         if (manual || now >= s_av.next) updateAvalanche(now, manual);
         if (kWeatherEnabled && (manual || now >= s_weatherNext)) updateWeather(time(nullptr));
+        if (kAlpineEnabled && (manual || now >= s_alpineNext)) updateAlpine(time(nullptr));
         if (manual) {
             display::Lock lock;
             ui::setRefreshing(false);
