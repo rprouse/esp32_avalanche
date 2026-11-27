@@ -40,4 +40,9 @@ void setWifiSetupCallback(void (*cb)());
 /** Grey out the refresh button while a refresh is running. */
 void setRefreshing(bool busy);
 
+/** Full-screen "Updating firmware" overlay with a progress bar (0-100); created on first call. */
+void showFirmwareUpdate(int percent);
+/** Finish the overlay: `error == nullptr` shows "Restarting...", otherwise the error, then closes after 6 s. */
+void endFirmwareUpdate(const char *error);
+
 }  // namespace ui

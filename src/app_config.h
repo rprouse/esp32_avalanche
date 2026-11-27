@@ -59,6 +59,14 @@
 #define WEATHER_LONGITUDE FORECAST_LONGITUDE
 #endif
 
+// Over-the-air updates: disabled while the password is empty
+#ifndef OTA_PASSWORD
+#define OTA_PASSWORD ""
+#endif
+#ifndef OTA_HOSTNAME
+#define OTA_HOSTNAME "backcountry"
+#endif
+
 // Screen off overnight (equal hours = always on)
 #ifndef SCREEN_OFF_HOUR
 #define SCREEN_OFF_HOUR 23

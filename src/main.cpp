@@ -1,5 +1,6 @@
 #include <Arduino.h>
 
+#include "app/ota.h"
 #include "app/screen_schedule.h"
 #include "app/updater.h"
 #include "app/wifi_setup.h"
@@ -38,6 +39,7 @@ void setup() {
 
     // Wi-Fi, NTP and forecast downloads run in their own task (core 0).
     updater::start();
+    ota::start();  // waits for the updater's Wi-Fi connection
     {
         display::Lock lock;
         ui::setRefreshCallback(updater::requestRefresh);

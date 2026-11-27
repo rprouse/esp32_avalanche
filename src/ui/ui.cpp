@@ -533,9 +533,80 @@ void confirmWifiSetup() {
         ok, [](lv_event_t *) { s_wifiSetupCb(); }, LV_EVENT_CLICKED, nullptr);
 }
 
+// ---- Firmware update overlay (OTA): covers the whole screen on the top layer and
+// swallows touches while it's up.
+struct OtaOverlay {
+    lv_obj_t *root = nullptr;
+    lv_obj_t *title = nullptr;
+    lv_obj_t *bar = nullptr;
+    lv_obj_t *detail = nullptr;
+    lv_timer_t *closeTimer = nullptr;  // pending close after a failure
+} s_ota;
+
+void ensureOtaOverlay() {
+    if (s_ota.root != nullptr) return;
+    lv_obj_t *root = lv_obj_create(lv_layer_top());
+    lv_obj_set_size(root, display::kWidth, display::kHeight);
+    lv_obj_set_style_bg_color(root, lv_color_hex(kBgColor), 0);
+    lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(root, 0, 0);
+    lv_obj_set_style_radius(root, 0, 0);
+    lv_obj_remove_flag(root, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(root, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_flex_flow(root, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(root, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(root, 24, 0);
+
+    s_ota.root = root;
+    s_ota.title = makeLabel(root, "", &lv_font_montserrat_40, kClockColor);
+    s_ota.bar = lv_bar_create(root);
+    lv_obj_set_size(s_ota.bar, 520, 28);
+    lv_bar_set_range(s_ota.bar, 0, 100);
+    lv_obj_set_style_bg_color(s_ota.bar, lv_color_hex(kPanelColor), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_ota.bar, lv_color_hex(kAccentColor), LV_PART_INDICATOR);
+    s_ota.detail = makeLabel(root, "", &lv_font_montserrat_24, kBodyColor);
+    lv_obj_set_style_text_align(s_ota.detail, LV_TEXT_ALIGN_CENTER, 0);
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------- public
+
+void showFirmwareUpdate(int percent) {
+    ensureOtaOverlay();
+    if (s_ota.closeTimer != nullptr) {  // a new attempt right after a failed one
+        lv_timer_delete(s_ota.closeTimer);
+        s_ota.closeTimer = nullptr;
+    }
+    lv_label_set_text(s_ota.title, LV_SYMBOL_DOWNLOAD "  Updating firmware");
+    lv_obj_set_style_text_color(s_ota.title, lv_color_hex(kClockColor), 0);
+    lv_obj_remove_flag(s_ota.bar, LV_OBJ_FLAG_HIDDEN);
+    lv_bar_set_value(s_ota.bar, percent, LV_ANIM_OFF);
+    lv_label_set_text_fmt(s_ota.detail, "%d%%\nDon't unplug the display", percent);
+}
+
+void endFirmwareUpdate(const char *error) {
+    ensureOtaOverlay();
+    if (error == nullptr) {
+        lv_label_set_text(s_ota.title, LV_SYMBOL_OK "  Update complete");
+        lv_bar_set_value(s_ota.bar, 100, LV_ANIM_OFF);
+        lv_label_set_text(s_ota.detail, "Restarting...");
+        return;
+    }
+    lv_label_set_text(s_ota.title, LV_SYMBOL_WARNING "  Update failed");
+    lv_obj_set_style_text_color(s_ota.title, lv_color_hex(0xF7941E), 0);
+    lv_obj_add_flag(s_ota.bar, LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text_fmt(s_ota.detail, "%s\nThe current firmware keeps running.", error);
+    // Back to the normal screens after a few seconds.
+    if (s_ota.closeTimer != nullptr) lv_timer_delete(s_ota.closeTimer);
+    s_ota.closeTimer = lv_timer_create(
+        [](lv_timer_t *) {
+            lv_obj_delete(s_ota.root);
+            s_ota = {};  // the one-shot timer deletes itself
+        },
+        6000, nullptr);
+    lv_timer_set_repeat_count(s_ota.closeTimer, 1);
+}
 
 void build(const forecast::Forecast &fc) {
     lv_obj_t *scr = lv_screen_active();

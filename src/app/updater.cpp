@@ -6,6 +6,7 @@
 #include <lvgl.h>  // LV_SYMBOL_REFRESH
 #include <time.h>
 
+#include "app/ota.h"
 #include "app_config.h"
 #include "display/display_port.h"
 #include "forecast/forecast_client.h"
@@ -44,6 +45,7 @@ bool ensureWifi() {
     if (WiFi.status() == WL_CONNECTED) return true;
     status("Connecting to " + s_creds.ssid + "...", ui::StatusLevel::Info);
     WiFi.persistent(false);  // credentials live in our own NVS namespace (wifi_creds)
+    WiFi.setHostname(OTA_HOSTNAME);  // DHCP name; must be set before mode()/begin()
     WiFi.mode(WIFI_STA);
     WiFi.setAutoReconnect(true);
     WiFi.begin(s_creds.ssid.c_str(), s_creds.pass.isEmpty() ? nullptr : s_creds.pass.c_str());
@@ -275,6 +277,12 @@ void task(void *) {
         if (!ensureTime()) {
             status("Clock sync failed - retrying", ui::StatusLevel::Error);
             waitOrRefresh(FORECAST_RETRY_MINUTES * 60UL * 1000UL);
+            continue;
+        }
+
+        // Leave the network (and heap) to a firmware upload; it restarts the device when done.
+        if (ota::active()) {
+            waitOrRefresh(1000);
             continue;
         }
 
