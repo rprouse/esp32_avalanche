@@ -72,6 +72,14 @@
 // #define WEATHER_LATITUDE      49.4627
 // #define WEATHER_LONGITUDE     -115.0873
 
+// ----------------------------------------------------------------------------- Over-the-air updates
+// Set a password to allow firmware uploads over Wi-Fi (leave empty to disable):
+//     pio run -t upload --upload-port backcountry.local
+// tools/pio_ota.py reads the password from this file, so nothing else to configure.
+// OTA_HOSTNAME is the network name: <OTA_HOSTNAME>.local (letters, digits and '-').
+#define OTA_PASSWORD   ""
+#define OTA_HOSTNAME   "backcountry"
+
 // ----------------------------------------------------------------------------- Screen
 // Turn the screen (backlight) off overnight, local time. Touching the screen wakes
 // it for SCREEN_WAKE_MINUTES; that first touch doesn't press anything. Set

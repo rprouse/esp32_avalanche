@@ -113,6 +113,7 @@ resets through it (see `include/esp_panel_board_custom_conf.h`).
   & $pio run -t upload          # flash (UART1 port)
   & $pio device monitor         # serial @115200
   & $pio run -t upload -t monitor
+  & $pio run -t upload --upload-port backcountry.local   # over Wi-Fi (needs OTA_PASSWORD)
   ```
 - First build downloads ~1-2 GB of toolchain; later incremental builds take ~30 s.
 
@@ -145,6 +146,7 @@ src/
   app/updater.*               Task on core 0: Wi-Fi, NTP, fetch schedule, retries, pushes to UI
   app/screen_schedule.*       Backlight off overnight (lv_timer), touch to wake
   app/wifi_setup.*            Wi-Fi setup mode: soft AP, DNS catch-all, captive web page, connect test
+  app/ota.*                   Over-the-air firmware updates (ArduinoOTA), progress overlay
   net/wifi_creds.*            Wi-Fi credentials in NVS (falls back to config.h), setup-mode flag
   display/display_port.*      Board + LVGL glue: init, flush, touch read, LVGL task, mutex
   ui/ui.*                     All LVGL screens (header with refresh button, tabview)
@@ -161,6 +163,7 @@ assets/weather-icons/         Source BMP icons (Bodmer, FreeBSD license)
 tools/convert_icons.py        BMP -> LVGL RGB565A8 converter (brightness -> alpha)
 tools/pio_generate_icons.py   PlatformIO pre-build hook that runs the converter when stale
 tools/make_logo.py            SVG (assets/icons/terrain.svg) -> A8 logo (src/ui/logo_icon.c)
+tools/pio_ota.py              PlatformIO pre-script: espota + password from config.h for network upload ports
 include/
   lv_conf.h, esp_panel_board_custom_conf.h
   config.sample.h             template for config.h (committed)
@@ -312,6 +315,32 @@ Only the Wi-Fi SSID/password can be set on the device; everything else stays in 
 - **Leaving:** success or "Forget" restarts. With credentials saved, a Cancel button restarts at once,
   and 10 min without HTTP requests or AP station changes restarts too. The `setup` flag is cleared
   when read, so a power cycle in setup also returns to normal mode.
+
+## Over-the-air updates (`src/app/ota.*`, issue #3)
+
+- ArduinoOTA (espota protocol, UDP 3232 + a TCP connection back to the uploading computer). **Off
+  unless `OTA_PASSWORD` is set** in `config.h`. `OTA_HOSTNAME` (default `backcountry`) is the DHCP name
+  (set in `updater::ensureWifi`) and the mDNS name `backcountry.local`.
+- The `ota` task (core 0) waits until the updater's Wi-Fi is connected, calls `ArduinoOTA.begin()`, then
+  polls `handle()`. The whole image is received inside `handle()`; it doesn't block the UI task. Not
+  active in Wi-Fi setup mode.
+- Upload: `pio run -t upload --upload-port backcountry.local` (or the IP). `tools/pio_ota.py` (pre-script)
+  sees a network upload port, switches `UPLOAD_PROTOCOL` to `espota` and adds `--auth=<OTA_PASSWORD>` read
+  from `config.h` via `UPLOAD_FLAGS`, so the password is never in `platformio.ini`. Serial ports are
+  untouched. The password must match what the running firmware was built with.
+- Upload stuck at "Waiting for device... No response from device" after "Authenticating... OK" = the
+  device couldn't open the TCP connection back to the PC: a Windows Firewall rule blocks inbound to
+  PlatformIO's `python.exe` (on this dev PC it's the uv-managed `cpython-3.13.x` interpreter). On the dev PC
+  `backcountry.local` did not resolve (ProtonVPN running), so use the IP there.
+- `default_16MB.csv` has two 6.4 MB app slots, so no partition change was needed. The new image boots
+  only after it's fully written and verified (MD5); otherwise the old one keeps running. App rollback
+  (`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`) is **not** enabled, so a build that crashes at boot needs
+  USB to recover. Test over USB first when touching startup code.
+- UI: `ui::showFirmwareUpdate(percent)` / `ui::endFirmwareUpdate(error)` put a full-screen overlay on
+  `lv_layer_top()` that swallows touches. Progress updates are throttled to 2 % steps (each redraws the
+  whole frame). On failure the overlay closes itself after 6 s.
+- While `ota::active()`, the updater skips downloads. Expect possible brief display flicker during the
+  upload: flash writes stall PSRAM access (see the Wi-Fi + RGB pitfall).
 
 ## Stale forecast warning (`applyFreshness()` in `src/ui/ui.cpp`)
 

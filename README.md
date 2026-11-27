@@ -22,6 +22,26 @@ it, saves it and restarts.
 To change networks later, **hold the refresh button for 3 seconds** and confirm. Setup mode has a
 Cancel button, and gives up after 10 idle minutes, going back to the saved network.
 
+## Updating over Wi-Fi (OTA)
+
+Once the display is mounted, you can flash new firmware over Wi-Fi instead of USB:
+
+1. Set `OTA_PASSWORD` in `include/config.h` and flash once over USB.
+2. From then on, with the display on the same network:
+   ```powershell
+   pio run -t upload --upload-port backcountry.local
+   ```
+   Use the display's IP address if `.local` names don't resolve on your network (the boot log on the
+   serial monitor prints it, and so does your router's client list under the name `backcountry`).
+
+The screen shows a progress bar during the update and restarts when it finishes. A failed or interrupted
+upload leaves the current firmware running. The display connects back to your computer to fetch the
+image, so Windows Firewall must allow incoming connections to PlatformIO's Python on private networks.
+If the upload stops at "Waiting for device... No response from device" after authenticating, look for a
+**Block** rule for that `python.exe` in Windows Defender Firewall (dismissing the first-run prompt creates
+one) and change it to Allow. If `backcountry.local` doesn't resolve (some VPN clients block mDNS), use the IP.
+Change the network name with `OTA_HOSTNAME`. Serial monitoring still needs the USB cable.
+
 ## What it does
 
 - Downloads the [Avalanche Canada](https://avalanche.ca) forecast for the configured location at power-on
